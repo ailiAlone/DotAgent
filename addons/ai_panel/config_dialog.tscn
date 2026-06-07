@@ -1,0 +1,115 @@
+[gd_scene load_steps=2 format=3 uid="uid://b0rvkhvy0aky7"]
+
+[ext_resource type="Script" path="res://addons/ai_panel/config_dialog.gd" id="1_cfg"]
+
+[node name="ConfigDialog" type="Window"]
+title = "AI Panel Settings"
+size = Vector2i(520, 360)
+min_size = Vector2i(420, 320)
+script = ExtResource("1_cfg")
+
+[node name="Root" type="VBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="HintLabel" type="Label" parent="Root"]
+layout_mode = 2
+text = "OpenAI-compatible API config. Stored in addons/ai_panel/config.cfg (not in git)."
+autowrap_mode = 2
+
+[node name="Form" type="GridContainer" parent="Root"]
+layout_mode = 2
+columns = 2
+
+[node name="BaseUrlLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Base URL:"
+
+[node name="BaseUrlField" type="LineEdit" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "https://api.openai.com/v1"
+
+[node name="ApiKeyLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "API Key:"
+
+[node name="ApiKeyField" type="LineEdit" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+secret = true
+placeholder_text = "sk-..."
+
+[node name="ModelLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Model:"
+
+[node name="ModelField" type="LineEdit" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "gpt-4o"
+
+[node name="MaxTokensLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Max Tokens:"
+
+[node name="MaxTokensField" type="SpinBox" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 256.0
+max_value = 32768.0
+value = 4096.0
+step = 256.0
+
+[node name="TempLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Temperature:"
+
+[node name="TempField" type="SpinBox" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 0.0
+max_value = 2.0
+step = 0.1
+value = 0.2
+
+[node name="Spacer" type="Control" parent="Root"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="StatusLabel" type="Label" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+
+[node name="Buttons" type="HBoxContainer" parent="Root"]
+layout_mode = 2
+
+[node name="ButtonSpacer" type="Control" parent="Root/Buttons"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TestButton" type="Button" parent="Root/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Test Connection"
+
+[node name="CancelButton" type="Button" parent="Root/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Cancel"
+
+[node name="SaveButton" type="Button" parent="Root/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Save"

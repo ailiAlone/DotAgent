@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# AI Panel: sensitive / generated
+addons/ai_panel/config.cfg
+.ai_panel_backups/
+
+# Session data + run logs (regenerated each session, large)
+ai_sessions/
+logs/

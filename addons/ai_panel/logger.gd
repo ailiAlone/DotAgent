@@ -1,0 +1,265 @@
+@tool
+class_name SessionLog
+extends RefCounted
+## 会话日志收集器
+##
+## 每次用户发消息时:
+## 1. start_session() — 在 res://logs/<时间戳>/ 建目录
+## 2. 期间所有 append() 调用同时 print 到 Godot console + 存 buffer
+## 3. 结束时 end_session(messages) — 写 conversation.md / editor_output.txt / meta.json
+##
+## **类名不能用 "Logger",方法名不能用 "log"** — Godot 4.5 有 native 类 Logger 自带 .log(float) 方法,
+## 会让 GDScript 类型推断错乱。所以这里用 SessionLog / append
+
+const LOG_ROOT := "res://logs"
+
+var _buffer: Array[String] = []
+var _session_dir: String = ""
+var _session_id: String = ""
+
+static var _instance: SessionLog = null
+
+## 单例入口
+static func instance() -> SessionLog:
+	if _instance == null:
+		_instance = SessionLog.new()
+	return _instance
+
+
+## 开始新会话(用户发消息时调用)
+func start_session() -> String:
+	var dt := Time.get_datetime_string_from_system(true).replace(":", "-").replace("T", "_")
+	# 把小数秒去掉(YYYY-MM-DD_HH-MM-SS 长度固定)
+	# Time 格式: 2026-06-07T14:30:25.123 → 2026-06-07_14-30-25
+	# 但 .123 还在,需要截断
+	if dt.contains("."):
+		dt = dt.split(".")[0]
+	_session_id = dt
+	_session_dir = LOG_ROOT.path_join(dt)
+	DirAccess.make_dir_recursive_absolute(_session_dir)
+	_buffer.clear()
+	append("SESSION", "=== Session started: %s ===" % dt)
+	return _session_id
+
+
+## 结束会话,写入文件
+## messages: _messages 数组(Dictionary 列表,role+content+tool_calls)
+## meta_extra: 额外元信息(消息数、工具数等)
+func end_session(messages: Array, meta_extra: Dictionary = {}) -> void:
+	append("SESSION", "=== Session ended ===")
+	_write_editor_output()
+	_write_conversation_md(messages)
+	_write_messages_json(messages)
+	_write_meta(messages, meta_extra)
+	_buffer.clear()
+	_session_dir = ""
+	_session_id = ""
+
+
+## 一行 log:同时 print 到 Godot console + 存到 buffer
+func append(source: String, text: String) -> void:
+	var t := Time.get_time_string_from_system()
+	var line := "%s [%s] %s" % [t, source, text]
+	if _session_id.is_empty():
+		# 没在 session 里,只 print
+		print(line)
+		return
+	_buffer.append(line)
+	print(line)
+
+
+## 警告:同时 push_warning(让 Godot 红色标) + 写 log
+func warn(text: String) -> void:
+	push_warning(text)
+	append("WARN", text)
+
+
+## 错误:同时 push_error(让 Godot 红色标) + 写 log
+func error(text: String) -> void:
+	push_error(text)
+	append("ERROR", text)
+
+
+## 当前 session 目录(空字符串 = 不在 session 里)
+func get_session_dir() -> String:
+	return _session_dir
+
+
+# ============ 内部:写文件 ============
+
+func _write_editor_output() -> void:
+	var path := _session_dir.path_join("editor_output.txt")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("[Logger] Cannot write %s: %s" % [path, error_string(FileAccess.get_open_error())])
+		return
+	f.store_string("\n".join(_buffer))
+	f.close()
+
+
+func _write_conversation_md(messages: Array) -> void:
+	var path := _session_dir.path_join("conversation.md")
+	var lines: Array[String] = []
+	lines.append("# AI Panel Session — %s" % _session_id)
+	lines.append("")
+	lines.append("Started: %s" % _session_id.replace("_", " "))
+	lines.append("")
+	lines.append("---")
+	lines.append("")
+	for msg in messages:
+		var role: String = msg.get("role", "?")
+		# 关键:不能用 msg.get("content", "") 然后 typed 赋值
+		# 当 LLM 返回 content=null 时,get 不会触发 default,直接拿到 null → 崩
+		# 用 Variant 中间变量判断 nil
+		var content_raw = msg.get("content", null)
+		var content: String = str(content_raw) if content_raw != null else ""
+		match role:
+			"system":
+				lines.append("## system")
+				lines.append("")
+				lines.append("```")
+				lines.append(content)
+				lines.append("```")
+				lines.append("")
+			"user":
+				lines.append("## 👤 User")
+				lines.append("")
+				lines.append(content)
+				lines.append("")
+			"assistant":
+				lines.append("## 🤖 Assistant")
+				lines.append("")
+				if content != "":
+					lines.append(content)
+					lines.append("")
+				# tool_calls
+				var tool_calls: Array = msg.get("tool_calls", [])
+				if not tool_calls.is_empty():
+					for tc in tool_calls:
+						var name: String = tc.get("function", {}).get("name", "?")
+						var args_raw: String = tc.get("function", {}).get("arguments", "{}")
+						lines.append("**🔧 %s**" % name)
+						lines.append("")
+						lines.append("```json")
+						lines.append(args_raw)
+						lines.append("```")
+						lines.append("")
+			"tool":
+				var tool_call_id: String = msg.get("tool_call_id", "?")
+				lines.append("**⬅️ Tool result** (`%s`)" % tool_call_id)
+				lines.append("")
+				lines.append("```")
+				lines.append(content)
+				lines.append("```")
+				lines.append("")
+			_:
+				lines.append("## %s" % role)
+				lines.append("")
+				lines.append(content)
+				lines.append("")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("[Logger] Cannot write %s" % path)
+		return
+	f.store_string("\n".join(lines))
+	f.close()
+
+
+func _write_meta(messages: Array, extra: Dictionary) -> void:
+	var path := _session_dir.path_join("meta.json")
+	var user_count := 0
+	var assistant_count := 0
+	var tool_call_count := 0
+	for msg in messages:
+		match msg.get("role", ""):
+			"user": user_count += 1
+			"assistant":
+				assistant_count += 1
+				tool_call_count += msg.get("tool_calls", []).size()
+	var meta := {
+		"session_id": _session_id,
+		"started_at": _session_id.replace("_", " "),
+		"message_count": messages.size(),
+		"user_messages": user_count,
+		"assistant_messages": assistant_count,
+		"tool_calls": tool_call_count,
+	}
+	for k in extra.keys():
+		meta[k] = extra[k]
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("[Logger] Cannot write %s" % path)
+		return
+	f.store_string(JSON.stringify(meta, "  "))
+	f.close()
+
+
+# ============ 历史 session 浏览(给 UI 和 list_sessions 工具用) ============
+
+## 列出所有历史 session(按 session_id 倒序,最新的在前)
+## 每个 entry 是 meta.json 的内容(含 session_id, started_at, user_messages 等)
+## 没 meta.json 的 session 跳过(写失败的)
+func list_sessions(limit: int = 50) -> Array:
+	var sessions: Array = []
+	if not DirAccess.dir_exists_absolute(LOG_ROOT):
+		return sessions
+	var d := DirAccess.open(LOG_ROOT)
+	if d == null:
+		return sessions
+	d.list_dir_begin()
+	var name := d.get_next()
+	while name != "":
+		if d.current_is_dir() and not name.begins_with("."):
+			var meta_path := LOG_ROOT.path_join(name).path_join("meta.json")
+			var info := {"session_id": name}
+			if FileAccess.file_exists(meta_path):
+				var f := FileAccess.open(meta_path, FileAccess.READ)
+				if f:
+					var content := f.get_as_text()
+					f.close()
+					var parsed = JSON.parse_string(content)
+					if typeof(parsed) == TYPE_DICTIONARY:
+						info = parsed
+			# 标记有没有 messages.json(决定 UI 能不能载入)
+			info["has_messages"] = FileAccess.file_exists(
+				LOG_ROOT.path_join(name).path_join("messages.json"))
+			sessions.append(info)
+		name = d.get_next()
+	d.list_dir_end()
+	# session_id 格式 YYYY-MM-DD_HH-MM-SS,字典序倒序 ≈ 时间倒序
+	sessions.sort_custom(func(a, b):
+		return a.get("session_id", "") > b.get("session_id", ""))
+	if limit > 0 and sessions.size() > limit:
+		return sessions.slice(0, limit)
+	return sessions
+
+
+## 加载一个 session 的 _messages 数组(从 messages.json 解析)
+## 返回空数组 = 该 session 没有 messages.json(老 session 没这个文件)
+func load_session_messages(session_id: String) -> Array:
+	var path := LOG_ROOT.path_join(session_id).path_join("messages.json")
+	if not FileAccess.file_exists(path):
+		return []
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return []
+	var content := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(content)
+	if typeof(parsed) == TYPE_ARRAY:
+		return parsed
+	return []
+
+
+# ============ 内部 ============
+
+func _write_messages_json(messages: Array) -> void:
+	# 写一个 messages.json 给 load_session 工具和 UI 用
+	# 不写 conversation.md 那套 markdown 格式(对机器不友好)
+	var path := _session_dir.path_join("messages.json")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("[Logger] Cannot write %s" % path)
+		return
+	f.store_string(JSON.stringify(messages))
+	f.close()
