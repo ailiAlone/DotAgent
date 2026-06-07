@@ -3,10 +3,10 @@ class_name ConfigManager
 extends RefCounted
 ## 配置管理:base_url, api_key, model, 采样参数
 ##
-## 存储位置:res://addons/ai_panel/config.cfg
+## 存储位置:res://addons/dotagent/config.cfg
 ## 该文件不进 git(写入 .gitignore)
 
-const CONFIG_PATH := "res://addons/ai_panel/config.cfg"
+const CONFIG_PATH := "res://addons/dotagent/config.cfg"
 
 const DEFAULT_BASE_URL := "https://api.openai.com/v1"
 const DEFAULT_MODEL := "gpt-4o"

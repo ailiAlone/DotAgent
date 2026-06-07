@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://b0rvkhvy0aky7"]
 
-[ext_resource type="Script" path="res://addons/ai_panel/config_dialog.gd" id="1_cfg"]
+[ext_resource type="Script" path="res://addons/dotagent/config_dialog.gd" id="1_cfg"]
 
 [node name="ConfigDialog" type="Window"]
 title = "AI Panel Settings"
@@ -21,7 +21,7 @@ grow_vertical = 2
 
 [node name="HintLabel" type="Label" parent="Root"]
 layout_mode = 2
-text = "OpenAI-compatible API config. Stored in addons/ai_panel/config.cfg (not in git)."
+text = "OpenAI-compatible API config. Stored in addons/dotagent/config.cfg (not in git)."
 autowrap_mode = 2
 
 [node name="Form" type="GridContainer" parent="Root"]

@@ -3,12 +3,12 @@ class_name BackupManager
 extends RefCounted
 ## 备份管理
 ##
-## 写操作前自动备份原文件到 res://.ai_panel_backups/<timestamp>/<rel_path>
-## - 备份根目录:res://.ai_panel_backups/
+## 写操作前自动备份原文件到 res://.dotagent_backups/<timestamp>/<rel_path>
+## - 备份根目录:res://.dotagent_backups/
 ## - 最多保留 50 个时间戳目录(老的自动清理)
 ## - 备份不进 git(写到 .gitignore)
 
-const BACKUP_ROOT := "res://.ai_panel_backups"
+const BACKUP_ROOT := "res://.dotagent_backups"
 const MAX_BACKUP_DIRS := 50
 
 

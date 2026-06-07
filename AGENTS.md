@@ -1,7 +1,7 @@
 # DotAgent Project — Agent Working Agreement
 
 This file is project memory for AI agents working on the `dotagent` Godot editor
-plugin in `addons/ai_panel/`. Read this before doing anything in the project.
+plugin in `addons/dotagent/`. Read this before doing anything in the project.
 
 ## Primary directive (set 2026-06-07)
 
@@ -11,9 +11,9 @@ plugin in `addons/ai_panel/`. Read this before doing anything in the project.
 The user's game project under `res://` is a *test harness* for dotagent, not the
 real product. The real product is the plugin itself. So:
 
-- ✅ Edit anything under `addons/ai_panel/`
-- ✅ Add new tools in `addons/ai_panel/tools/`
-- ✅ Improve the system prompt in `addons/ai_panel/dock.gd` (STATIC_SYSTEM_PROMPT)
+- ✅ Edit anything under `addons/dotagent/`
+- ✅ Add new tools in `addons/dotagent/tools/`
+- ✅ Improve the system prompt in `addons/dotagent/dock.gd` (STATIC_SYSTEM_PROMPT)
 - ✅ Adjust dock.tscn / activity_panel.tscn / config_dialog.tscn (UI of the plugin)
 - ❌ Do NOT edit `main_menu.tscn`, `main_menu.gd`, `settings.tscn`, `settings.gd`, `game.tscn`
 - ❌ Do NOT add new demo scenes or refactor the user's game logic
@@ -30,7 +30,7 @@ ai-plug/
 ├── main_menu.tscn / .gd          # USER's test scene — do not touch
 ├── settings.tscn / .gd           # USER's test scene — do not touch
 ├── game.tscn                     # USER's test scene — do not touch
-└── addons/ai_panel/              # THE PLUGIN — this is what we optimize
+└── addons/dotagent/              # THE PLUGIN — this is what we optimize
     ├── plugin.cfg / plugin.gd
     ├── dock.gd / dock.tscn       # main chat UI
     ├── activity_panel.gd / .tscn # bottom activity log
@@ -59,7 +59,7 @@ printed during the session.
 
 ## Tool naming convention
 
-Each `addons/ai_panel/tools/<name>.gd` extends `RefCounted` and exposes:
+Each `addons/dotagent/tools/<name>.gd` extends `RefCounted` and exposes:
 - `get_tool_definitions() -> Array` — list of `{name, description, parameters, method_name, dangerous}`
 - `call_method(method_name: String, args: Dictionary) -> Dictionary` — dispatch
 - `set_editor_context(plugin: EditorPlugin, activity: Control)` — injected by registry

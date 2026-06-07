@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://b1x2y3z4aipanel"]
 
-[ext_resource type="Script" path="res://addons/ai_panel/dock.gd" id="1_dock"]
+[ext_resource type="Script" path="res://addons/dotagent/dock.gd" id="1_dock"]
 
 [node name="DotAgent" type="VBoxContainer"]
 anchors_preset = 15

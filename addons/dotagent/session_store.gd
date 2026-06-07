@@ -16,7 +16,7 @@ extends RefCounted
 ## 消息写盘策略:每次写消息都 touch 一次(updated_at + 落盘),
 ## Godot 崩了也不丢最近的对话。
 
-const SESSIONS_ROOT := "res://ai_sessions"
+const SESSIONS_ROOT := "res://addons/dotagent/sessions"
 
 
 # ============ Public API ============

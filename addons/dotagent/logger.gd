@@ -11,7 +11,7 @@ extends RefCounted
 ## **类名不能用 "Logger",方法名不能用 "log"** — Godot 4.5 有 native 类 Logger 自带 .log(float) 方法,
 ## 会让 GDScript 类型推断错乱。所以这里用 SessionLog / append
 
-const LOG_ROOT := "res://logs"
+const LOG_ROOT := "res://addons/dotagent/logs"
 
 var _buffer: Array[String] = []
 var _session_dir: String = ""

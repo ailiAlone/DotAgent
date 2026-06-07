@@ -12,7 +12,7 @@ extends RefCounted
 ## - duplicate_node
 ## - reparent_node
 
-const _Logger := preload("res://addons/ai_panel/logger.gd")
+const _Logger := preload("res://addons/dotagent/logger.gd")
 
 var editor_plugin: EditorPlugin = null
 var activity_panel: Control = null

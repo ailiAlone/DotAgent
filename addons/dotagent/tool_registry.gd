@@ -99,7 +99,7 @@ func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 		activity_panel.log_tool_call(tc_name, args, "running")
 
 	# 危险操作:不再弹窗,直接执行,但在 Activity 面板显著标记
-	# 备份机制(.ai_panel_backups)兜底
+	# 备份机制(.dotagent_backups)兜底
 	if dangerous:
 		if activity_panel and activity_panel.has_method("log_warning"):
 			activity_panel.log_warning("⚠️ Dangerous tool auto-executing: %s" % tc_name)

@@ -23,9 +23,9 @@ var _config_dialog: Window = null
 
 func _enter_tree() -> void:
 	# 运行时 load(每次 enable 插件都重新读 .tscn)
-	_dock_scene = load("res://addons/ai_panel/dock.tscn")
-	_config_dialog_scene = load("res://addons/ai_panel/config_dialog.tscn")
-	_activity_panel_scene = load("res://addons/ai_panel/activity_panel.tscn")
+	_dock_scene = load("res://addons/dotagent/dock.tscn")
+	_config_dialog_scene = load("res://addons/dotagent/config_dialog.tscn")
+	_activity_panel_scene = load("res://addons/dotagent/activity_panel.tscn")
 
 	# 底部活动面板
 	_activity_panel = _activity_panel_scene.instantiate()
@@ -58,7 +58,7 @@ func _exit_tree() -> void:
 ## 弹出设置对话框
 func open_config_dialog() -> void:
 	if _config_dialog_scene == null:
-		_config_dialog_scene = load("res://addons/ai_panel/config_dialog.tscn")
+		_config_dialog_scene = load("res://addons/dotagent/config_dialog.tscn")
 	if _config_dialog != null and is_instance_valid(_config_dialog):
 		_config_dialog.popup_centered()
 		return

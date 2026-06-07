@@ -2,10 +2,10 @@
 .godot/
 /android/
 
-# AI Panel: sensitive / generated
-addons/ai_panel/config.cfg
-.ai_panel_backups/
+# DotAgent: sensitive / generated
+addons/dotagent/config.cfg
+.dotagent_backups/
 
 # Session data + run logs (regenerated each session, large)
-ai_sessions/
-logs/
+addons/dotagent/sessions/
+addons/dotagent/logs/

@@ -24,7 +24,7 @@ Godot 编辑器 AI 对话面板。OpenAI 兼容协议(DeepSeek / Moonshot / Olla
 
 ## 安装
 
-1. 整个 `addons/ai_panel/` 目录拷到你的 Godot 项目 `addons/` 下
+1. 整个 `addons/dotagent/` 目录拷到你的 Godot 项目 `addons/` 下
 2. Godot 编辑器 → Project → Project Settings → Plugins
 3. 启用 "AI Panel"
 4. 编辑器右下角出现 "AI Panel" 面板
@@ -38,7 +38,7 @@ Godot 编辑器 AI 对话面板。OpenAI 兼容协议(DeepSeek / Moonshot / Olla
   - `https://api.openai.com/v1`
   - `https://api.deepseek.com/v1`
   - `http://localhost:11434/v1` (Ollama)
-- **API Key** — 你的 key(只存在本地 `addons/ai_panel/config.cfg`,不进 git)
+- **API Key** — 你的 key(只存在本地 `addons/dotagent/config.cfg`,不进 git)
 - **Model** — 模型名,例如 `gpt-4o` / `deepseek-chat` / `qwen2.5-coder:7b`
 - **Max Tokens** / **Temperature** — 采样参数
 
@@ -105,17 +105,17 @@ Godot 编辑器 AI 对话面板。OpenAI 兼容协议(DeepSeek / Moonshot / Olla
 
 ## 安全 / 备份
 
-- API key 存 `addons/ai_panel/config.cfg`,已在 `.gitignore` 中
+- API key 存 `addons/dotagent/config.cfg`,已在 `.gitignore` 中
 - 危险操作弹确认对话框
-- 写脚本操作前自动备份到 `res://.ai_panel_backups/<时间戳>/<原路径>`,最多保留 50 个时间戳目录
-- 整个 `.ai_panel_backups/` 已在 `.gitignore` 中
+- 写脚本操作前自动备份到 `res://.dotagent_backups/<时间戳>/<原路径>`,最多保留 50 个时间戳目录
+- 整个 `.dotagent_backups/` 已在 `.gitignore` 中
 
-要恢复备份:从 `.ai_panel_backups/<时间戳>/<路径>` 复制回原位。
+要恢复备份:从 `.dotagent_backups/<时间戳>/<路径>` 复制回原位。
 
 ## 架构
 
 ```
-addons/ai_panel/
+addons/dotagent/
 ├── plugin.cfg                    插件元数据
 ├── plugin.gd                     EditorPlugin 入口
 ├── dock.tscn + dock.gd           主 Dock(消息流 + ReAct 循环)

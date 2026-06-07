@@ -162,11 +162,11 @@ func _tool_client_setup() -> void:
 
 func _register_tools() -> void:
 	for path in [
-		"res://addons/ai_panel/tools/scene_tools.gd",
-		"res://addons/ai_panel/tools/script_tools.gd",
-		"res://addons/ai_panel/tools/project_tools.gd",
-		"res://addons/ai_panel/tools/exec_tools.gd",
-		"res://addons/ai_panel/tools/session_tools.gd",
+		"res://addons/dotagent/tools/scene_tools.gd",
+		"res://addons/dotagent/tools/script_tools.gd",
+		"res://addons/dotagent/tools/project_tools.gd",
+		"res://addons/dotagent/tools/exec_tools.gd",
+		"res://addons/dotagent/tools/session_tools.gd",
 	]:
 		var script := load(path)
 		if script == null:
