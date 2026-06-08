@@ -27,7 +27,7 @@ theme_override_constants/separation = 16
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 48
-text = "My Game"
+text = "\"DotAgent\""
 horizontal_alignment = 1
 
 [node name="StartButton" type="Button" parent="Center/MenuContainer"]
@@ -47,3 +47,7 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
 text = "Quit"
+
+[node name="TestButton" type="Button" parent="Center/MenuContainer"]
+unique_name_in_owner = true
+layout_mode = 2

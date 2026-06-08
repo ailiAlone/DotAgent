@@ -1,8 +1,9 @@
 @tool
-extends RefCounted
+extends "res://addons/dotagent/core/tool_base.gd"
 ## 场景/节点工具集
 ##
 ## 工具:
+## - create_scene
 ## - get_scene_tree
 ## - get_node
 ## - get_node_properties
@@ -11,27 +12,27 @@ extends RefCounted
 ## - remove_node
 ## - duplicate_node
 ## - reparent_node
-
-const _Logger := preload("res://addons/dotagent/logger.gd")
-
-var editor_plugin: EditorPlugin = null
-var activity_panel: Control = null
-var _logger: SessionLog = SessionLog.instance()
+## - undo_last
 
 
-func set_editor_context(plugin: EditorPlugin, activity: Control) -> void:
-	editor_plugin = plugin
-	activity_panel = activity
-
-
-func _ei() -> EditorInterface:
-	if editor_plugin:
-		return editor_plugin.get_editor_interface()
-	return null
 
 
 func get_tool_definitions() -> Array:
 	return [
+		{
+			"name": "create_scene",
+			"description": "Create a NEW scene file (.tscn) and open it in the editor immediately. Use this BEFORE add_node to create an empty scene with a root node. NEVER use execute_gdscript + FileAccess to write .tscn by hand — it's slow and the editor won't show changes in real-time. After create_scene succeeds, use add_node to build the scene node by node.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Path for the new scene, e.g. 'res://player_stats.tscn'"},
+					"root_type": {"type": "string", "description": "Root node class (default 'Control'). Use 'Control' for UI scenes, 'Node2D' for 2D games.", "default": "Control"},
+				},
+				"required": ["path"],
+			},
+			"method_name": "_tool_create_scene",
+			"dangerous": false,
+		},
 		{
 			"name": "get_scene_tree",
 			"description": "Get the current edited scene tree as nested JSON. Each node includes name, type, script path, and a list of children. Use this to understand scene structure before making changes.",
@@ -129,11 +130,19 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_reparent_node",
 			"dangerous": false,
 		},
+		{
+			"name": "undo_last",
+			"description": "Undo the last scene operation by restoring the most recent backup. Use when a tool call had an unintended side effect.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_undo_last",
+			"dangerous": true,
+		},
 	]
 
 
 func call_method(method_name: String, args: Dictionary) -> Dictionary:
 	match method_name:
+		"_tool_create_scene": return _tool_create_scene(args)
 		"_tool_get_scene_tree": return _tool_get_scene_tree(args)
 		"_tool_get_node": return _tool_get_node(args)
 		"_tool_get_node_properties": return _tool_get_node_properties(args)
@@ -141,16 +150,60 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_add_node": return _tool_add_node(args)
 		"_tool_remove_node": return _tool_remove_node(args)
 		"_tool_reparent_node": return _tool_reparent_node(args)
+		"_tool_undo_last": return _tool_undo_last(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
 # ============ 工具实现 ============
 
+func _tool_create_scene(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var root_type: String = args.get("root_type", "Control")
+
+	if path.is_empty():
+		return _err("path is required")
+	if not path.ends_with(".tscn") and not path.ends_with(".scn"):
+		return _err("path must end with .tscn or .scn")
+	if FileAccess.file_exists(path):
+		return _err("Scene already exists: " + path + ". Use open_scene to open it.")
+	if not ClassDB.class_exists(root_type):
+		return _err("Unknown class: " + root_type)
+
+	# 确保目录存在
+	_ensure_dir(path)
+
+	# 创建根节点
+	var root: Node = ClassDB.instantiate(root_type)
+	var scene_name := path.get_file().get_basename()
+	root.name = scene_name
+
+	# 打包成 PackedScene
+	var packed := PackedScene.new()
+	var err := packed.pack(root)
+	if err != OK:
+		return _err("Failed to pack scene (err=%d). Try a different root_type." % err)
+
+	# 保存到磁盘
+	err = ResourceSaver.save(packed, path)
+	if err != OK:
+		return _err("Failed to save: " + error_string(err))
+
+	# 立即在编辑器中打开 — 用户实时看到新场景
+	_refresh_filesystem()
+	var ei = _ei()
+	if ei:
+		ei.open_scene_from_path(path)
+	else:
+		return _ok("Created: " + path + " (EditorInterface unavailable, open it manually)")
+
+	return _ok("Created and opened: " + path + " (root: " + root_type + "). Now use add_node to build it node by node.")
+
+
 func _tool_get_scene_tree(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return _ok("No scene currently open in editor.")
 
@@ -235,10 +288,10 @@ func _tool_set_node_property(args: Dictionary) -> Dictionary:
 
 
 func _tool_add_node(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return _err("No scene open. Open a scene first.")
 
@@ -294,25 +347,59 @@ func _tool_reparent_node(args: Dictionary) -> Dictionary:
 	var new_parent := _resolve_node(args.get("new_parent_path", ""))
 	if new_parent == null:
 		return _err("New parent not found")
-	var ei := _ei()
+	var ei = _ei()
 	var root: Node = ei.get_edited_scene_root() if ei else null
 	if root == null:
 		return _err("No scene open")
 	# 重新设 owner
-	var old_data := node.duplicate()
+	var old_data = node.duplicate()
 	new_parent.add_child(node)
 	_reown(node, root)
 	_emit_change()
 	return _ok("Reparented '%s' under '%s'" % [node.name, new_parent.name])
 
 
+func _tool_undo_last(args: Dictionary) -> Dictionary:
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
+	var root = ei.get_edited_scene_root()
+	if root == null:
+		return _err("No scene open")
+	var scene_path: String = root.scene_file_path
+	if scene_path.is_empty():
+		return _err("Scene not saved yet")
+	var backups := _backup.list_backups()
+	if backups.is_empty():
+		return _err("No backups found")
+	# 取最新的备份
+	var latest: String = backups[backups.size() - 1]
+	var backup_file: String = "res://.dotagent_backups/" + latest + "/" + scene_path.trim_prefix("res://")
+	if not FileAccess.file_exists(backup_file):
+		return _err("Backup file not found: " + backup_file)
+	var f := FileAccess.open(backup_file, FileAccess.READ)
+	if f == null:
+		return _err("Cannot read backup")
+	var content := f.get_as_text()
+	f.close()
+	var fw := FileAccess.open(scene_path, FileAccess.WRITE)
+	if fw == null:
+		return _err("Cannot write scene")
+	fw.store_string(content)
+	fw.close()
+	_refresh_filesystem()
+	if ei:
+		ei.open_scene_from_path(scene_path)
+	return _ok("Restored scene from backup: " + latest)
+
+
 # ============ 辅助 ============
 
 func _resolve_node(path: String) -> Node:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return null
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return null
 	# 根节点自身的几种写法
@@ -353,38 +440,22 @@ func _emit_change() -> void:
 	# 关键:每个写操作后自动调 EditorInterface.save_scene()
 	# 之前只是 log 提示,导致 AI 改了场景但磁盘没存 → run_scene_capture 跑旧版本报错
 	# 现在:写 → 立刻存,内存和磁盘同步
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return
 	# 跳过没保存过的新场景(没文件路径)
 	if root.scene_file_path.is_empty():
-		if activity_panel and activity_panel.has_method("log_warning"):
-			activity_panel.log_warning("Scene has no file path (new scene). Save it manually first.")
+		_log_act("log_warning", "Scene has no file path (new scene). Save it manually first.")
 		return
-	var err := ei.save_scene()
-	if err == OK:
-		if activity_panel and activity_panel.has_method("log_info"):
-			activity_panel.log_info("✅ Auto-saved: " + root.scene_file_path)
-		_logger.append("SCENE", "Auto-saved: " + root.scene_file_path)
-	else:
-		var msg := "Auto-save failed: " + error_string(err)
-		if activity_panel and activity_panel.has_method("log_warning"):
-			activity_panel.log_warning(msg)
-		_logger.warn(msg)
+	ei.save_scene()
+	_log_act("log_info", "✅ Auto-saved: " + root.scene_file_path)
+	_logger.append("SCENE", "Auto-saved: " + root.scene_file_path)
 
 
 func _type_name(v: Variant) -> String:
 	if v == null:
 		return "null"
 	return type_string(typeof(v))
-
-
-func _ok(content: String) -> Dictionary:
-	return {"ok": true, "content": content}
-
-
-func _err(content: String) -> Dictionary:
-	return {"ok": false, "content": "❌ " + content}

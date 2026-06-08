@@ -1,8 +1,9 @@
 [gd_scene load_steps=2 format=3 uid="uid://b0rvkhvy0aky7"]
 
-[ext_resource type="Script" path="res://addons/dotagent/config_dialog.gd" id="1_cfg"]
+[ext_resource type="Script" uid="uid://drpiufqnnwp60" path="res://addons/dotagent/ui/config_dialog.gd" id="1_cfg"]
 
 [node name="ConfigDialog" type="Window"]
+oversampling_override = 1.0
 title = "AI Panel Settings"
 size = Vector2i(520, 360)
 min_size = Vector2i(420, 320)
@@ -36,6 +37,7 @@ text = "Base URL:"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+text = "https://api.deepseek.com/v1"
 placeholder_text = "https://api.openai.com/v1"
 
 [node name="ApiKeyLabel" type="Label" parent="Root/Form"]
@@ -46,8 +48,9 @@ text = "API Key:"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-secret = true
+text = "sk-be3397fa225f48c99373afbe94263bca"
 placeholder_text = "sk-..."
+secret = true
 
 [node name="ModelLabel" type="Label" parent="Root/Form"]
 layout_mode = 2
@@ -57,19 +60,8 @@ text = "Model:"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
+text = "deepseek-v4-pro"
 placeholder_text = "gpt-4o"
-
-[node name="MaxTokensLabel" type="Label" parent="Root/Form"]
-layout_mode = 2
-text = "Max Tokens:"
-
-[node name="MaxTokensField" type="SpinBox" parent="Root/Form"]
-unique_name_in_owner = true
-layout_mode = 2
-min_value = 256.0
-max_value = 32768.0
-value = 4096.0
-step = 256.0
 
 [node name="TempLabel" type="Label" parent="Root/Form"]
 layout_mode = 2
@@ -78,10 +70,34 @@ text = "Temperature:"
 [node name="TempField" type="SpinBox" parent="Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
-min_value = 0.0
 max_value = 2.0
 step = 0.1
 value = 0.2
+
+[node name="ContextLimitLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Context Limit (K):"
+
+[node name="ContextLimitField" type="SpinBox" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+min_value = 16.0
+max_value = 2048.0
+step = 16.0
+value = 128.0
+
+[node name="LanguageLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Language:"
+
+[node name="LanguageField" type="OptionButton" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+item_count = 2
+popup/item_0/text = "中文"
+popup/item_0/id = 0
+popup/item_1/text = "English"
+popup/item_1/id = 1
 
 [node name="Spacer" type="Control" parent="Root"]
 layout_mode = 2
@@ -90,7 +106,7 @@ size_flags_vertical = 3
 [node name="StatusLabel" type="Label" parent="Root"]
 unique_name_in_owner = true
 layout_mode = 2
-text = ""
+autowrap_mode = 3
 
 [node name="Buttons" type="HBoxContainer" parent="Root"]
 layout_mode = 2

@@ -1,5 +1,5 @@
 @tool
-extends RefCounted
+extends "res://addons/dotagent/core/tool_base.gd"
 ## 项目工具集 - 文件系统、项目设置、配置
 ##
 ## 工具:
@@ -9,22 +9,11 @@ extends RefCounted
 ## - get_project_info
 ## - get_project_setting
 ## - set_project_setting
-## - get_console_output
-
-var editor_plugin: EditorPlugin = null
-var activity_panel: Control = null
-var _logger: SessionLog = SessionLog.instance()
+## - read_resource_as_text
+## - remember
+## - recall
 
 
-func set_editor_context(plugin: EditorPlugin, activity: Control) -> void:
-	editor_plugin = plugin
-	activity_panel = activity
-
-
-func _ei() -> EditorInterface:
-	if editor_plugin:
-		return editor_plugin.get_editor_interface()
-	return null
 
 
 func get_tool_definitions() -> Array:
@@ -104,6 +93,33 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_read_resource_as_text",
 			"dangerous": false,
 		},
+		{
+			"name": "remember",
+			"description": "Save a fact or convention to project memory (.dotagent_memory.md). Use for things like 'this project uses snake_case' or 'don't modify main_menu.tscn'.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"fact": {"type": "string", "description": "The fact or convention to remember"},
+				},
+				"required": ["fact"],
+			},
+			"method_name": "_tool_remember",
+			"dangerous": false,
+		},
+		{
+			"name": "recall",
+			"description": "Read project memory (.dotagent_memory.md). Use at the start of a new session to recall conventions and decisions.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_recall",
+			"dangerous": false,
+		},
+		{
+			"name": "export_session",
+			"description": "Export current conversation as a Markdown file. Saves to res://session_export.md.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_export_session",
+			"dangerous": false,
+		},
 	]
 
 
@@ -116,6 +132,9 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_project_setting": return _tool_get_project_setting(args)
 		"_tool_set_project_setting": return _tool_set_project_setting(args)
 		"_tool_read_resource_as_text": return _tool_read_resource_as_text(args)
+		"_tool_remember": return _tool_remember(args)
+		"_tool_recall": return _tool_recall(args)
+		"_tool_export_session": return _tool_export_session(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -199,44 +218,63 @@ func _tool_read_resource_as_text(args: Dictionary) -> Dictionary:
 	return _ok(content)
 
 
-# ============ 辅助 ============
+# project_tools 辅助方法已移至 ToolBase 基类
 
-func _walk_dir(dir: String, out: Array, extensions: Array, pattern: String) -> void:
-	var d := DirAccess.open(dir)
+const MEMORY_PATH := "res://.dotagent_memory.md"
+
+
+func _tool_remember(args: Dictionary) -> Dictionary:
+	var fact: String = args.get("fact", "")
+	if fact.is_empty():
+		return _err("fact is required")
+	var existing := ""
+	if FileAccess.file_exists(MEMORY_PATH):
+		var f := FileAccess.open(MEMORY_PATH, FileAccess.READ)
+		if f:
+			existing = f.get_as_text()
+			f.close()
+	var f := FileAccess.open(MEMORY_PATH, FileAccess.WRITE)
+	if f == null:
+		return _err("Cannot write memory file")
+	f.store_string(existing + "- " + fact + "\n")
+	f.close()
+	return _ok("Remembered: " + fact)
+
+
+func _tool_recall(args: Dictionary) -> Dictionary:
+	if not FileAccess.file_exists(MEMORY_PATH):
+		return _ok("(no project memory yet — use remember to add facts)")
+	var f := FileAccess.open(MEMORY_PATH, FileAccess.READ)
+	if f == null:
+		return _err("Cannot read memory")
+	var content := f.get_as_text()
+	f.close()
+	return _ok(content)
+
+
+func _tool_export_session(args: Dictionary) -> Dictionary:
+	var logs_dir := "res://addons/dotagent/logs"
+	var d := DirAccess.open(logs_dir)
 	if d == null:
-		return
+		return _err("Cannot access logs")
+	var latest := ""
 	d.list_dir_begin()
 	var name := d.get_next()
 	while name != "":
-		# 跳过:隐藏目录 / addons(插件自己) / logs(每次 AI session 都产生几千行
-		# 历史 log,列进项目树会污染 LLM context 而且 AI 用不上)
-		if name.begins_with(".") \
-				or (name == "addons" and dir == "res://") \
-				or (name == "logs" and dir == "res://"):
-			name = d.get_next()
-			continue
-		var full := dir.path_join(name)
-		if d.current_is_dir():
-			_walk_dir(full, out, extensions, pattern)
-		else:
-			var matched := extensions.is_empty()
-			if not matched:
-				for ext in extensions:
-					if name.ends_with(ext):
-						matched = true
-						break
-			# pattern 用 String.match 做 glob(* 任意, ? 单字符),不是字面 contains
-			if matched and not pattern.is_empty():
-				matched = name.match(pattern)
-			if matched:
-				out.append(full)
+		if d.current_is_dir() and name > latest:
+			latest = name
 		name = d.get_next()
 	d.list_dir_end()
-
-
-func _ok(content: String) -> Dictionary:
-	return {"ok": true, "content": content}
-
-
-func _err(content: String) -> Dictionary:
-	return {"ok": false, "content": "❌ " + content}
+	if latest == "":
+		return _err("No sessions found")
+	var src := logs_dir.path_join(latest).path_join("conversation.md")
+	if not FileAccess.file_exists(src):
+		return _err("No conversation found")
+	var f := FileAccess.open(src, FileAccess.READ)
+	var content := f.get_as_text()
+	f.close()
+	var dst := "res://session_export.md"
+	var fw := FileAccess.open(dst, FileAccess.WRITE)
+	fw.store_string(content)
+	fw.close()
+	return _ok("Exported to: " + dst)

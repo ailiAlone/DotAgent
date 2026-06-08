@@ -1,5 +1,5 @@
 @tool
-extends RefCounted
+extends "res://addons/dotagent/core/tool_base.gd"
 ## 脚本工具集
 ##
 ## 工具:
@@ -8,22 +8,9 @@ extends RefCounted
 ## - update_script (危险 - 覆盖)
 ## - list_scripts
 ## - search_in_scripts
-
-var editor_plugin: EditorPlugin = null
-var activity_panel: Control = null
-var _backup: BackupManager = null
+## - replace_in_scripts
 
 
-func set_editor_context(plugin: EditorPlugin, activity: Control) -> void:
-	editor_plugin = plugin
-	activity_panel = activity
-	_backup = BackupManager.new()
-
-
-func _ei() -> EditorInterface:
-	if editor_plugin:
-		return editor_plugin.get_editor_interface()
-	return null
 
 
 func get_tool_definitions() -> Array:
@@ -96,6 +83,21 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_search_in_scripts",
 			"dangerous": false,
 		},
+		{
+			"name": "replace_in_scripts",
+			"description": "Search and replace text across all scripts. Dangerous — modifies files. Always backed up before changes.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Text to search for"},
+					"replacement": {"type": "string", "description": "Replacement text"},
+					"directory": {"type": "string", "description": "Optional subdirectory to limit scope"},
+				},
+				"required": ["query", "replacement"],
+			},
+			"method_name": "_tool_replace_in_scripts",
+			"dangerous": true,
+		},
 	]
 
 
@@ -106,6 +108,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_update_script": return _tool_update_script(args)
 		"_tool_list_scripts": return _tool_list_scripts(args)
 		"_tool_search_in_scripts": return _tool_search_in_scripts(args)
+		"_tool_replace_in_scripts": return _tool_replace_in_scripts(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -142,8 +145,9 @@ func _tool_create_script(args: Dictionary) -> Dictionary:
 	f.store_string(content)
 	f.close()
 
-	# 触发文件系统重扫
-	_refresh_filesystem()
+	# 不调 _refresh_filesystem() — 新建 .gd 文件会触发 Godot 全局脚本重载，
+	# 重载会杀掉所有挂起的协程（包括 _run_react_loop），导致 session 被截断。
+	# 文件已落盘，编辑器稍后会自然发现。
 	return _ok("Created: " + path + " (" + str(content.length()) + " bytes)")
 
 
@@ -213,48 +217,33 @@ func _tool_search_in_scripts(args: Dictionary) -> Dictionary:
 	return _ok(JSON.stringify(results, "  "))
 
 
-# ============ 辅助 ============
+# script_tools 辅助方法已移至 ToolBase 基类
 
-func _walk_dir(dir: String, out: Array, extensions: Array) -> void:
-	var d := DirAccess.open(dir)
-	if d == null:
-		return
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		if name.begins_with("."):
-			name = d.get_next()
+
+func _tool_replace_in_scripts(args: Dictionary) -> Dictionary:
+	var query: String = args.get("query", "")
+	var replacement: String = args.get("replacement", "")
+	var dir: String = args.get("directory", "res://")
+	if query.is_empty():
+		return _err("query is required")
+	var paths: Array = []
+	_walk_dir(dir, paths, [".gd", ".cs"])
+	var changed := 0
+	for p in paths:
+		var f := FileAccess.open(p, FileAccess.READ)
+		if f == null:
 			continue
-		var full := dir.path_join(name)
-		if d.current_is_dir():
-			_walk_dir(full, out, extensions)
-		else:
-			for ext in extensions:
-				if name.ends_with(ext):
-					out.append(full)
-					break
-		name = d.get_next()
-	d.list_dir_end()
-
-
-func _ensure_dir(path: String) -> void:
-	var last_slash := path.rfind("/")
-	if last_slash <= 0:
-		return
-	var dir := path.substr(0, last_slash)
-	if not DirAccess.dir_exists_absolute(dir):
-		DirAccess.make_dir_recursive_absolute(dir)
-
-
-func _refresh_filesystem() -> void:
-	var ei := _ei()
-	if ei:
-		ei.get_resource_filesystem().scan()
-
-
-func _ok(content: String) -> Dictionary:
-	return {"ok": true, "content": content}
-
-
-func _err(content: String) -> Dictionary:
-	return {"ok": false, "content": "❌ " + content}
+		var content := f.get_as_text()
+		f.close()
+		if not content.contains(query):
+			continue
+		_backup.backup(p)
+		var new_content := content.replace(query, replacement)
+		var fw := FileAccess.open(p, FileAccess.WRITE)
+		if fw == null:
+			continue
+		fw.store_string(new_content)
+		fw.close()
+		changed += 1
+	_refresh_filesystem()
+	return _ok("Replaced '%s' → '%s' in %d files" % [query, replacement, changed])

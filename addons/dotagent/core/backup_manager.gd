@@ -16,7 +16,7 @@ const MAX_BACKUP_DIRS := 50
 func backup(file_path: String) -> String:
 	if not FileAccess.file_exists(file_path):
 		return ""
-	var ts := Time.get_datetime_string_from_system(true).replace(":", "-").replace("T", "_")
+	var ts := Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")
 	var backup_dir := BACKUP_ROOT.path_join(ts)
 	var rel := file_path
 	if rel.begins_with("res://"):

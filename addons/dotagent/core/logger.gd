@@ -28,7 +28,7 @@ static func instance() -> SessionLog:
 
 ## 开始新会话(用户发消息时调用)
 func start_session() -> String:
-	var dt := Time.get_datetime_string_from_system(true).replace(":", "-").replace("T", "_")
+	var dt := Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")
 	# 把小数秒去掉(YYYY-MM-DD_HH-MM-SS 长度固定)
 	# Time 格式: 2026-06-07T14:30:25.123 → 2026-06-07_14-30-25
 	# 但 .123 还在,需要截断
@@ -94,6 +94,7 @@ func _write_editor_output() -> void:
 		push_error("[Logger] Cannot write %s: %s" % [path, error_string(FileAccess.get_open_error())])
 		return
 	f.store_string("\n".join(_buffer))
+	f.store_string("\n\n# 注意：Godot 引擎级错误(push_error)无法被插件捕获，请查看 Godot 编辑器的 Output 面板")
 	f.close()
 
 
@@ -192,63 +193,6 @@ func _write_meta(messages: Array, extra: Dictionary) -> void:
 		return
 	f.store_string(JSON.stringify(meta, "  "))
 	f.close()
-
-
-# ============ 历史 session 浏览(给 UI 和 list_sessions 工具用) ============
-
-## 列出所有历史 session(按 session_id 倒序,最新的在前)
-## 每个 entry 是 meta.json 的内容(含 session_id, started_at, user_messages 等)
-## 没 meta.json 的 session 跳过(写失败的)
-func list_sessions(limit: int = 50) -> Array:
-	var sessions: Array = []
-	if not DirAccess.dir_exists_absolute(LOG_ROOT):
-		return sessions
-	var d := DirAccess.open(LOG_ROOT)
-	if d == null:
-		return sessions
-	d.list_dir_begin()
-	var name := d.get_next()
-	while name != "":
-		if d.current_is_dir() and not name.begins_with("."):
-			var meta_path := LOG_ROOT.path_join(name).path_join("meta.json")
-			var info := {"session_id": name}
-			if FileAccess.file_exists(meta_path):
-				var f := FileAccess.open(meta_path, FileAccess.READ)
-				if f:
-					var content := f.get_as_text()
-					f.close()
-					var parsed = JSON.parse_string(content)
-					if typeof(parsed) == TYPE_DICTIONARY:
-						info = parsed
-			# 标记有没有 messages.json(决定 UI 能不能载入)
-			info["has_messages"] = FileAccess.file_exists(
-				LOG_ROOT.path_join(name).path_join("messages.json"))
-			sessions.append(info)
-		name = d.get_next()
-	d.list_dir_end()
-	# session_id 格式 YYYY-MM-DD_HH-MM-SS,字典序倒序 ≈ 时间倒序
-	sessions.sort_custom(func(a, b):
-		return a.get("session_id", "") > b.get("session_id", ""))
-	if limit > 0 and sessions.size() > limit:
-		return sessions.slice(0, limit)
-	return sessions
-
-
-## 加载一个 session 的 _messages 数组(从 messages.json 解析)
-## 返回空数组 = 该 session 没有 messages.json(老 session 没这个文件)
-func load_session_messages(session_id: String) -> Array:
-	var path := LOG_ROOT.path_join(session_id).path_join("messages.json")
-	if not FileAccess.file_exists(path):
-		return []
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return []
-	var content := f.get_as_text()
-	f.close()
-	var parsed = JSON.parse_string(content)
-	if typeof(parsed) == TYPE_ARRAY:
-		return parsed
-	return []
 
 
 # ============ 内部 ============

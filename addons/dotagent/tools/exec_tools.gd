@@ -1,5 +1,5 @@
 @tool
-extends RefCounted
+extends "res://addons/dotagent/core/tool_base.gd"
 ## 执行类工具 - 让 AI 真的"动手"
 ##
 ## 工具:
@@ -10,20 +10,6 @@ extends RefCounted
 ## - reload_project       (危险)
 ## - get_editor_selection
 ## - get_node_type_info
-
-var editor_plugin: EditorPlugin = null
-var activity_panel: Control = null
-
-
-func set_editor_context(plugin: EditorPlugin, activity: Control) -> void:
-	editor_plugin = plugin
-	activity_panel = activity
-
-
-func _ei() -> EditorInterface:
-	if editor_plugin:
-		return editor_plugin.get_editor_interface()
-	return null
 
 
 func get_tool_definitions() -> Array:
@@ -111,18 +97,6 @@ func get_tool_definitions() -> Array:
 			"dangerous": true,
 		},
 		{
-			"name": "get_console_output",
-			"description": "Get recent console output. Godot 4.5 does not expose editor console via API, so this returns a hint to look at the Output panel. For autonomous error capture, use run_scene_capture instead.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"lines": {"type": "integer", "description": "How many lines (default 30, ignored — see description)"},
-				},
-			},
-			"method_name": "_tool_get_console_output",
-			"dangerous": false,
-		},
-		{
 			"name": "get_node_type_info",
 			"description": "Get information about a Godot class: inheritance, properties, methods, signals. Useful before calling or setting things on a type.",
 			"parameters": {
@@ -140,7 +114,7 @@ func get_tool_definitions() -> Array:
 
 func call_method(method_name: String, args: Dictionary) -> Dictionary:
 	match method_name:
-		"_tool_execute_gdscript": return _tool_execute_gdscript(args)
+		"_tool_execute_gdscript": return await _tool_execute_gdscript(args)
 		"_tool_call_node_method": return _tool_call_node_method(args)
 		"_tool_open_scene": return _tool_open_scene(args)
 		"_tool_run_current_scene": return _tool_run_current_scene(args)
@@ -149,7 +123,6 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_editor_selection": return _tool_get_editor_selection(args)
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return _tool_run_scene_capture(args)
-		"_tool_get_console_output": return _tool_get_console_output(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -198,17 +171,22 @@ func run(ei: EditorInterface) -> String:
 	if err != OK:
 		return _err("Script compile error (line in source: " + _get_compile_error(script) + ")\n--- snippet ---\n" + snippet)
 
+	# Bug #2: script.new() can return null if runtime init fails
 	var obj = script.new()
-	var ei := _ei()
-	var result = obj.run(ei)
+	if obj == null:
+		return _err("Script instantiated but new() returned null")
+	var ei = _ei()
+	# Bug #2 fix: support user snippets with `await` by awaiting obj.run()
+	# (this makes _tool_execute_gdscript a coroutine; tool_registry already awaits mod.call_method)
+	var result = await obj.run(ei)
 	return _ok(str(result))
 
 
 func _tool_call_node_method(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return _err("No scene open")
 	var path: String = args.get("path", "")
@@ -226,10 +204,10 @@ func _tool_call_node_method(args: Dictionary) -> Dictionary:
 
 
 func _tool_run_current_scene(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var root := ei.get_edited_scene_root()
+	var root = ei.get_edited_scene_root()
 	if root == null:
 		return _err("No scene open in editor")
 	if ei.has_method("play_custom_scene"):
@@ -247,7 +225,7 @@ func _tool_run_current_scene(args: Dictionary) -> Dictionary:
 ## 成功/失败依赖 Godot 内部 — 失败时 Godot 在 console 推 error
 ## 简单验证:对比 edited_scene_root 的 scene_file_path 是否变了
 func _tool_open_scene(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
 	var path: String = args.get("path", "")
@@ -258,15 +236,15 @@ func _tool_open_scene(args: Dictionary) -> Dictionary:
 	if not path.ends_with(".tscn") and not path.ends_with(".scn"):
 		return _err("Path must be a scene file (.tscn / .scn)")
 
-	var prev_root := ei.get_edited_scene_root()
-	var prev_path := prev_root.scene_file_path if prev_root else ""
+	var prev_root = ei.get_edited_scene_root()
+	var prev_path = prev_root.scene_file_path if prev_root else ""
 
 	ei.open_scene_from_path(path)
 
 	# void return — 验证一下 edited_scene_root 是不是新场景
 	# 路径比对:EditorInterface 可能用 "res://foo.tscn" 或 absolute,统一 normalize
-	var new_root := ei.get_edited_scene_root()
-	var new_path := new_root.scene_file_path if new_root else ""
+	var new_root = ei.get_edited_scene_root()
+	var new_path = new_root.scene_file_path if new_root else ""
 	if new_path == path and new_path != prev_path:
 		return _ok("Opened scene: " + path)
 	if new_path == prev_path and prev_path != path:
@@ -275,7 +253,7 @@ func _tool_open_scene(args: Dictionary) -> Dictionary:
 
 
 func _tool_stop_running_scene(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
 	ei.stop_playing_scene()
@@ -283,7 +261,7 @@ func _tool_stop_running_scene(args: Dictionary) -> Dictionary:
 
 
 func _tool_reload_project(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
 	ei.get_resource_filesystem().scan()
@@ -291,10 +269,10 @@ func _tool_reload_project(args: Dictionary) -> Dictionary:
 
 
 func _tool_get_editor_selection(args: Dictionary) -> Dictionary:
-	var ei := _ei()
+	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var sel := ei.get_selection().get_selected_nodes()
+	var sel = ei.get_selection().get_selected_nodes()
 	var result := []
 	for n in sel:
 		result.append({
@@ -343,9 +321,9 @@ func _type_name(t: int) -> String:
 func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	var scene_path: String = args.get("scene_path", "")
 	if scene_path.is_empty():
-		var ei := _ei()
+		var ei = _ei()
 		if ei:
-			var root := ei.get_edited_scene_root()
+			var root = ei.get_edited_scene_root()
 			if root:
 				scene_path = root.scene_file_path
 	if scene_path.is_empty():
@@ -363,6 +341,10 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	var project_path: String = ProjectSettings.globalize_path("res://")
 	var scene_abs: String = ProjectSettings.globalize_path(scene_path)
 
+	# Bug #3 caveat: OS.execute spawns a NEW Godot process using the editor's exe.
+	# 默认 frames=60 已在 0.5s(30 帧)到 1s(60 帧)内,场景 hang 不会永久卡编辑器
+	# 但每个调用会开一个 200MB+ 的新进程,频繁调用(>10 次/分钟)会吃内存
+	# 未来:换成 OS.create_process 异步 + polling,但目前 OK
 	var arguments: PackedStringArray = [
 		"--headless",
 		"--path", project_path,
@@ -376,11 +358,18 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	var full_output := "\n".join(output)
 
 	# 找 ERROR / SCRIPT ERROR / Parse Error / push_error
+	# Bug #5 fix: 用 starts_with 锚定行首,避免 "MY_ERROR_VAR" / "no errors found" / "error handling..." 等误报
 	var error_lines: Array = []
 	for line in full_output.split("\n"):
 		var l := line as String
-		if l.contains("ERROR") or l.contains("SCRIPT ERROR") or l.contains("Parse Error") or l.contains("push_error"):
-			error_lines.append(l.strip_edges())
+		var stripped := l.strip_edges()
+		if stripped.begins_with("ERROR:") \
+				or stripped.begins_with("SCRIPT ERROR:") \
+				or stripped.begins_with("Parse Error:") \
+				or stripped.begins_with("USER ERROR:") \
+				or stripped.contains("push_error(") \
+				or stripped.contains("push_critical("):
+			error_lines.append(stripped)
 
 	var preview := full_output
 	if preview.length() > 3000:
@@ -389,19 +378,8 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	if error_lines.is_empty():
 		return _ok("✅ Scene '%s' ran for %d frames, no errors detected.\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, preview])
 	else:
-		return _ok("❌ Scene '%s' ran for %d frames, found %d error(s):\n%s\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, error_lines.size(), "\n".join(error_lines), preview])
+		# Bug #1: errors found → return ok=false so LLM sees it failed
+		return _err("Scene '%s' ran for %d frames, found %d error(s):\n%s\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, error_lines.size(), "\n".join(error_lines), preview])
 
 
-func _tool_get_console_output(args: Dictionary) -> Dictionary:
-	return _ok("⚠️ Godot 4.5 没法直接读 Editor 的 console(API 不可用)。\n\n" +
-		"两种方式拿错误:\n" +
-		"1. 用户看底部 'Output' 面板,找 'ERROR:' 'SCRIPT ERROR:' 'Parse Error:' 行\n" +
-		"2. 调 run_scene_capture 工具,自动跑 headless 场景 + 捕获错误返回")
-
-
-func _ok(content: String) -> Dictionary:
-	return {"ok": true, "content": content}
-
-
-func _err(content: String) -> Dictionary:
-	return {"ok": false, "content": "❌ " + content}
+# exec_tools 辅助方法已移至 ToolBase 基类

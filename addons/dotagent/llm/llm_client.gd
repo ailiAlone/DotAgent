@@ -14,7 +14,7 @@ var _logger: SessionLog = SessionLog.instance()
 ##   await client.request_completed
 
 signal chunk_received(chunk: String)
-signal stream_finished(content: String, tool_calls: Array)
+signal stream_finished(content: String, tool_calls: Array, finish_reason: String)
 signal stream_error(error: String)
 signal request_completed
 signal progress_remaining(seconds: float)  # watchdog 剩余时间,每秒 emit 一次
@@ -31,14 +31,15 @@ var _config: ConfigManager = null
 var _stream_buffer: PackedByteArray = PackedByteArray()
 var _accumulated_content: String = ""
 var _accumulated_tool_calls: Array = []
+var _accumulated_finish_reason: String = ""  # LLM API 的 finish_reason:"stop"/"tool_calls"/"length"
 var _abort: bool = false
 var _active: bool = false
-var _watchdog: SceneTreeTimer = null
-var _watchdog_id: int = 0  # 每次 _start_watchdog 自增,旧 timer 到时间时因 ID 不匹配被忽略
+var _watchdog_id: int = 0
+var _last_activity: float = 0.0  # 上次收到数据的时刻，动态看门狗用
 
 
 func _init() -> void:
-	_config = ConfigManager.new()
+	_config = ConfigManager.instance()
 
 
 ## 设置宿主节点(HTTPRequest 必须挂在 SceneTree 上才能工作)。
@@ -64,8 +65,10 @@ func chat_stream(messages: Array, tools: Array, timeout: float = -1.0) -> Error:
 	_stream_buffer = PackedByteArray()
 	_accumulated_content = ""
 	_accumulated_tool_calls = []
+	_accumulated_finish_reason = ""
+	_last_activity = Time.get_ticks_msec() / 1000.0
 
-	# 启动 watchdog — 兜底防 HTTPRequest 永远不回调
+	# 动态看门狗：每收到数据重置计时，只有数据完全停止 25s 才超时
 	var watchdog_t: float = timeout if timeout > 0.0 else CHAT_WATCHDOG_TIMEOUT
 	_start_watchdog(watchdog_t)
 
@@ -102,51 +105,41 @@ func chat_stream(messages: Array, tools: Array, timeout: float = -1.0) -> Error:
 	return err
 
 
+func _note_activity() -> void:
+	_last_activity = Time.get_ticks_msec() / 1000.0
+
+
 func _start_watchdog(timeout: float = CHAT_WATCHDOG_TIMEOUT) -> void:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null:
-		return
-	# 关键:每次都自增 ID,这样新 timer 启动后,旧 timer 到时间时
-	# 它的 lambda 会发现 my_id != _watchdog_id,直接 ignore,不会误触发超时
 	_watchdog_id += 1
 	var my_id := _watchdog_id
-	_watchdog = tree.create_timer(timeout)
-	_watchdog.timeout.connect(func():
-		if my_id == _watchdog_id:
-			_on_watchdog()
-	)
 	_countdown_loop(my_id, timeout)
 
 
-## 倒计时协程:每秒 emit 一次 progress_remaining,直到请求完成或 watchdog 触发
-## my_id 用于检测"我是不是被新 watchdog 替换了",被替换就直接退出
+## 每秒检查：距离上次收到数据是否超过 timeout 秒
 func _countdown_loop(my_id: int, total: float = CHAT_WATCHDOG_TIMEOUT) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
 		return
-	var remaining := total
-	progress_remaining.emit(remaining)
-	while remaining > 0.0 and _active and not _abort:
+	progress_remaining.emit(total)
+	while _active and not _abort:
 		await tree.create_timer(1.0).timeout
-		if not _active or _abort:
+		if not _active or _abort or my_id != _watchdog_id:
 			return
-		if my_id != _watchdog_id:
-			return  # 已被新 watchdog 替换,旧协程退出
-		remaining -= 1.0
-		if remaining > 0.0:
-			progress_remaining.emit(remaining)
+		var elapsed := Time.get_ticks_msec() / 1000.0 - _last_activity
+		var remaining := max(0.0, total - elapsed)
+		if remaining <= 0.0:
+			_on_watchdog()
+			return
+		progress_remaining.emit(remaining)
 
 
 func _on_watchdog() -> void:
 	if not _active:
 		return
-	_logger.warn("Watchdog timeout - HTTPRequest 没回调")
-	# 错误信息要可操作:常见原因 + 用户能做的事
-	# 之前只说"URL 不对",实际更多是 context 太大 LLM 算不动、或者服务端慢
-	stream_error.emit("Watchdog timeout (25s) 内无响应。常见原因:\n" +
-		"  • LLM 服务端慢或挂起(API 限流/过载)— 等会再试,或换 model\n" +
-		"  • _messages 太大,context 爆掉 — 工具调多了会雪崩,需要简化问题或清对话重新开始\n" +
-		"  • URL/Key 错或网络不通 — 检查 Settings 里的 Base URL 和 API Key")
+	_logger.warn("Watchdog timeout — 25s 内无任何数据")
+	stream_error.emit("Watchdog: 25 秒内未收到任何响应数据。\n" +
+		"  • AI 可能在处理大量数据 — 试试 Compact 或简化请求\n" +
+		"  • 网络或 API 问题 — 检查 Settings 里的 Base URL 和 API Key")
 	# 主动 cancel
 	if _http and is_instance_valid(_http):
 		_http.cancel_request()
@@ -184,6 +177,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 		return
 
 	_logger.append("LLM", "HTTP %d, body size=%d bytes" % [response_code, body.size()])
+	_note_activity()  # 收到 HTTP 响应，重置看门狗
 
 	# 解析 SSE 流
 	# OpenAI 兼容 SSE 格式:
@@ -192,7 +186,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	_parse_sse(body)
 
 	_logger.append("LLM", "SSE parsed: content_len=%d, tool_calls=%d" % [_accumulated_content.length(), _accumulated_tool_calls.size()])
-	stream_finished.emit(_accumulated_content, _accumulated_tool_calls)
+	stream_finished.emit(_accumulated_content, _accumulated_tool_calls, _accumulated_finish_reason)
 	_cleanup()
 	request_completed.emit()
 
@@ -250,11 +244,17 @@ func _parse_sse(body: PackedByteArray) -> void:
 		var choice: Dictionary = choices[0]
 		var delta: Dictionary = choice.get("delta", {})
 
+		# finish_reason — LLM 告诉我们它是否结束了
+		var fr: String = str(choice.get("finish_reason", ""))
+		if fr != "":
+			_accumulated_finish_reason = fr
+
 		# content — LLM 流式时,空 delta 的 content 字段是 null 不是 ""
 		var content_chunk := _get_string(delta, "content")
 		if content_chunk != "":
 			_accumulated_content += content_chunk
 			chunk_received.emit(content_chunk)
+			_note_activity()  # 收到流式数据，重置看门狗
 
 		# tool_calls
 		if delta.has("tool_calls"):
@@ -285,7 +285,7 @@ func _build_request_body(messages: Array, tools: Array, stream: bool) -> String:
 		"model": _config.get_model(),
 		"messages": messages,
 		"temperature": _config.get_temperature(),
-		"max_tokens": _config.get_max_tokens(),
+		"max_tokens": _config.get_max_tokens() * 1000,  # 配置存 K tokens，API 要原始值
 		"stream": stream,
 	}
 	if not tools.is_empty():
@@ -308,8 +308,6 @@ func _cleanup() -> void:
 		return  # 防止重复 emit
 	_active = false
 	progress_done.emit()
-	# watchdog 不需要手动 free,SceneTreeTimer 到时间自动释放
-	_watchdog = null
 	if _http and is_instance_valid(_http):
 		_http.queue_free()
 		_http = null

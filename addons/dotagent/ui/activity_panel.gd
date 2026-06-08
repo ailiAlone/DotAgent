@@ -1,16 +1,19 @@
 @tool
 extends VBoxContainer
 ## 活动日志面板 - 显示 AI 的工具调用过程
-##
-## 通过 ToolRegistry 调用 log_tool_call / log_tool_result / log_info
+## 同时写入 SessionLog，确保 Activity 输出也进入 editor_output.txt
 
 @onready var log_list: VBoxContainer = %LogList
 @onready var scroll: ScrollContainer = %Scroll
 @onready var clear_button: Button = %ClearButton
 
+var _logger: SessionLog = null
+
 
 func _ready() -> void:
+	_logger = SessionLog.instance()
 	clear_button.pressed.connect(_on_clear)
+	clear_button.text = Locale.t("Clear")
 
 
 func log_tool_call(tool_name: String, args: Dictionary, status: String) -> void:
@@ -18,6 +21,7 @@ func log_tool_call(tool_name: String, args: Dictionary, status: String) -> void:
 	if status != "":
 		line += "  [%s]" % status
 	_append_line(line, _color("running"))
+	_logger.append("ACTIVITY", line)
 
 
 func log_tool_result(tool_name: String, result: Dictionary) -> void:
@@ -26,21 +30,28 @@ func log_tool_result(tool_name: String, result: Dictionary) -> void:
 	var preview := content.replace("\n", " ")
 	if preview.length() > 200:
 		preview = preview.substr(0, 200) + "..."
-	var mark := "✓" if ok else "✗"
+	var mark := "✅" if ok else "❌"
 	var line := "%s  %s %s → %s" % [_timestamp(), mark, tool_name, preview]
 	_append_line(line, _color("ok" if ok else "err"))
+	_logger.append("ACTIVITY", line)
 
 
 func log_info(text: String) -> void:
-	_append_line("%s  ℹ %s" % [_timestamp(), text], _color("info"))
+	var line := "%s  ℹ️ %s" % [_timestamp(), text]
+	_append_line(line, _color("info"))
+	_logger.append("ACTIVITY", line)
 
 
 func log_warning(text: String) -> void:
-	_append_line("%s  %s" % [_timestamp(), text], _color("warn"))
+	var line := "%s  ⚠️ %s" % [_timestamp(), text]
+	_append_line(line, _color("warn"))
+	_logger.append("ACTIVITY", line)
 
 
 func log_error(text: String) -> void:
-	_append_line("%s  ✗ %s" % [_timestamp(), text], _color("err"))
+	var line := "%s  ❌ %s" % [_timestamp(), text]
+	_append_line(line, _color("err"))
+	_logger.append("ACTIVITY", line)
 
 
 func _append_line(text: String, color: Color) -> void:
@@ -73,11 +84,11 @@ func _timestamp() -> String:
 
 func _color(kind: String) -> Color:
 	match kind:
-		"running": return Color(0.95, 0.78, 0.35)  # 琥珀
-		"ok": return Color(0.55, 0.85, 0.55)        # 绿
-		"err": return Color(0.95, 0.45, 0.45)       # 红
-		"info": return Color(0.6, 0.8, 1.0)         # 蓝
-		"warn": return Color(0.95, 0.65, 0.20)      # 橙
+		"running": return Color(0.95, 0.78, 0.35)  # 琥珀色
+		"ok": return Color(0.55, 0.85, 0.55)        # 绿色
+		"err": return Color(0.95, 0.45, 0.45)       # 红色
+		"info": return Color(0.6, 0.8, 1.0)         # 蓝色
+		"warn": return Color(0.95, 0.65, 0.20)      # 橙色
 		_: return Color(0.85, 0.85, 0.85)
 
 

@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://ci7cee6wdjji1"]
 
-[ext_resource type="Script" path="res://addons/dotagent/activity_panel.gd" id="1_act"]
+[ext_resource type="Script" path="res://addons/dotagent/ui/activity_panel.gd" id="1_act"]
 
 [node name="AIActivityPanel" type="VBoxContainer"]
 anchors_preset = 15

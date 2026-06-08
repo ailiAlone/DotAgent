@@ -128,9 +128,13 @@ func write_messages(id: String, messages: Array) -> bool:
 func fork_session(source_id: String, new_name: String = "") -> Dictionary:
 	var src_msgs := read_messages(source_id)
 	var new_info := create_session(new_name if new_name != "" else "Fork of " + source_id, source_id)
-	# 复制消息(去掉 source 的 system prompt 里的动态上下文,避免老数据污染)
+	# Bug #4 fix: 跳过 system prompt,让 controller 在第一次 LLM 调用时注入新的
+	# 避免 fork 出来的 session 带着 fork 时刻的过期"当前场景/选中节点"快照
 	var cleaned: Array = []
 	for m in src_msgs:
+		var role: String = m.get("role", "")
+		if role == "system":
+			continue
 		var copy: Dictionary = m.duplicate(true)
 		cleaned.append(copy)
 	write_messages(new_info["id"], cleaned)
@@ -204,7 +208,7 @@ func _write_messages_file(id: String, messages: Array) -> void:
 
 func _generate_id() -> String:
 	# 跟 logger 同样的格式:YYYY-MM-DD_HH-MM-SS,加 _NNNN 后缀防同秒冲突
-	var base := Time.get_datetime_string_from_system(true).replace(":", "-").replace("T", "_")
+	var base := Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")
 	if base.contains("."):
 		base = base.split(".")[0]
 	var id := base
@@ -216,7 +220,7 @@ func _generate_id() -> String:
 
 
 func _now_str() -> String:
-	var s := Time.get_datetime_string_from_system(true)
+	var s := Time.get_datetime_string_from_system(false)
 	if s.contains("."):
 		s = s.split(".")[0]
 	return s
