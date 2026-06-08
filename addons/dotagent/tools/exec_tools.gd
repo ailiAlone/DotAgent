@@ -109,6 +109,18 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_get_node_type_info",
 			"dangerous": false,
 		},
+		{
+			"name": "read_editor_output",
+			"description": "Read the last N lines from the Godot editor's Output panel. Use when open_scene or other editor operations fail silently — the error messages often appear here.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"max_lines": {"type": "integer", "description": "Max lines to return (default 50)", "default": 50},
+				},
+			},
+			"method_name": "_tool_read_editor_output",
+			"dangerous": false,
+		},
 	]
 
 
@@ -123,6 +135,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_editor_selection": return _tool_get_editor_selection(args)
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return _tool_run_scene_capture(args)
+		"_tool_read_editor_output": return _tool_read_editor_output(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -146,19 +159,26 @@ func _tool_execute_gdscript(args: Dictionary) -> Dictionary:
 	var indented := "\n".join(processed)
 
 	# wrapper 提供:
-	# - _result:String — 用户可赋值,会作为返回值(空字符串 = 没回写)
-	# - _echo(text):既 print 到 console 又 append 到 _result
-	#   → 推荐用 _echo 替代 print,这样输出能进 tool result
+	# - _result:String — 自动累积所有 print/push_error/push_warning 输出
+	# - _echo(text):同 print 但强制写 _result
 	# - ei:EditorInterface 引用
-	# 关键:把 _result 显式声明成 String,不要用 null,
-	# 否则 GDScript 类型推断成 Variant,func 声明返回 String 会 parse error
+	# print/push_error/push_warning 被局部 shadow，输出自动进入 _result
 	var script_src := """
 extends RefCounted
-var _result: String = \"\"
+var _result: String = ""
 
 func _echo(text) -> void:
-	_result += str(text) + \"\\n\"
+	_result += str(text) + "\n"
 	print(text)
+
+func print(text) -> void:
+	_echo(text)
+
+func push_error(text) -> void:
+	_echo("ERROR: " + str(text))
+
+func push_warning(text) -> void:
+	_echo("WARNING: " + str(text))
 
 func run(ei: EditorInterface) -> String:
 %s
@@ -383,3 +403,34 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 
 
 # exec_tools 辅助方法已移至 ToolBase 基类
+
+
+func _tool_read_editor_output(args: Dictionary) -> Dictionary:
+	var max_lines: int = int(args.get("max_lines", 50))
+	# Godot editor log 路径因 OS 不同：
+	# Windows: %APPDATA%/Godot/editor_data/editor_log.txt
+	# Linux: ~/.local/share/godot/editor_data/editor_log.txt
+	# macOS: ~/Library/Application Support/Godot/editor_data/editor_log.txt
+	# get_user_data_dir() 返回项目专用路径，需要上溯到 Godot 配置根目录
+	var candidates := [
+		OS.get_user_data_dir().get_base_dir().path_join("editor_data/editor_log.txt"),
+		OS.get_user_data_dir().get_base_dir().get_base_dir().path_join("editor_data/editor_log.txt"),
+	]
+	var log_path := ""
+	for c in candidates:
+		if FileAccess.file_exists(c):
+			log_path = c
+			break
+	if log_path.is_empty():
+		return _err("Cannot find editor_log.txt. Candidates: %s" % str(candidates))
+	var f := FileAccess.open(log_path, FileAccess.READ)
+	if f == null:
+		return _err("Cannot open: " + log_path)
+	var full := f.get_as_text()
+	f.close()
+	var lines := full.split("\n")
+	var start := max(0, lines.size() - max_lines)
+	var tail_lines: Array = []
+	for i in range(start, lines.size()):
+		tail_lines.append(lines[i])
+	return _ok("[last %d lines of %s]\n%s" % [tail_lines.size(), log_path, "\n".join(tail_lines)])

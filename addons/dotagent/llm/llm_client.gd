@@ -22,7 +22,7 @@ signal progress_done()  # 请求结束(成功/失败/取消)时 emit
 
 const REQUEST_TIMEOUT := 120.0
 const TEST_WATCHDOG_TIMEOUT := 10.0  # Test Connection 用,快速失败反馈
-const CHAT_WATCHDOG_TIMEOUT := 25.0  # 正常对话用,给慢 LLM 留余地
+const CHAT_WATCHDOG_TIMEOUT := 60.0  # 正常对话用,给慢 LLM 留余地（DeepSeek 大上下文可能 30s+）
 
 var tool_registry: ToolRegistry
 var _host_node: Node = null  # 用来挂载 HTTPRequest 的宿主节点

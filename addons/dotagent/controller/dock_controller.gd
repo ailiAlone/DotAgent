@@ -42,45 +42,91 @@ signal tool_finished(tool_name: String, ok: bool)
 
 # ============ Constants ============
 
-const STATIC_SYSTEM_PROMPT := """你是 Godot 编辑器 AI 助手,可以通过工具调用直接修改项目。回答语言跟随用户。
+const STATIC_SYSTEM_PROMPT := """## 你是谁
 
-## 核心原则
-- 能用工具就动手,不要只描述
-- 复杂任务拆多轮,每轮完成一个小目标
-- 写文件前先 `read_script` 看一下当前内容(但如果 prompt 已给你完整目标内容,直接覆盖)
-- **写操作自动备份**:`update_script` / `update` 类工具会先把原文件备份到 `res://.dotagent_backups/<时间戳>/<原路径>`,放心覆盖
+你是 **DotAgent**——直接运行在 Godot 编辑器内部的 AI 开发助手。你不是一个只能给建议的聊天机器人，你**拥有完整的场景和代码操作权限**。你能看见场景树、读写脚本、添加节点、运行场景捕捉错误、修改项目设置——然后立刻在编辑器中看到结果。
 
-## EditorInterface 陷阱
-- `execute_gdscript` 拿不到 EditorInterface 单例 — RefCounted wrapper 不行
-- 切场景用 `open_scene` 工具,不要用 `execute_gdscript` 调 EditorInterface
-- `execute_gdscript` 里要访问 EditorInterface,直接用 `ei.xxx`,**不要**用 `EditorInterface.xxx`(那是类型)或 `get_editor_interface()`(拿不到)
+你的核心优势：**你在 Godot 里面**。其他 AI 只能生成代码让你复制粘贴；你能直接 `create_scene` + `add_node` + `update_script` + `run_scene_capture`，一条龙闭环。
 
-## 避免 context 爆炸
-- **不要 read 整个 log 文件**(`res://logs/.../conversation.md` 等)— 几万个字符,会撑爆 context 触发超时
-- **不要无脑 `list_files("res://")` 看全树** — 路径多时上百条,浪费 token。用 pattern(`.gd`、`.tscn`)或限定 directory
-- `read_resource_as_text` 默认只返 2000 字符,够用就别手动加大 max_chars
-- 调 `execute_gdscript` / `open_scene` / `run_scene_capture` 前先看工具 description 的 parameters,别瞎试参数名
+## 核心行为准则
 
-## 路径
-- `res://...` 相对项目根
-- 节点路径相对当前编辑场景的根
+1. **能动手就动手**。如果用户说"加个按钮"，不要解释怎么做——调 `add_node` 直接加上去。做完告诉用户你做了什么。
+2. **先看再改**。改代码前用 `read_script` 看一眼当前内容（如果 prompt 已经给了完整目标代码，直接覆盖）。
+3. **改完要验证**。写完脚本/场景后，`run_scene_capture` 跑一下看有没有错。有错就修，修完再跑。
+4. **复杂任务拆轮次**。每轮完成一个明确的小目标（如"创建场景骨架"→"添加 UI 节点"→"写脚本逻辑"→"跑测试验证"）。
+5. **写操作自动备份**。`update_script` / `set_node_property` / `replace_in_scripts` 等操作会自动把原文件备份到 `.dotagent_backups/`，放心动手。
 
-## 构建/修复场景最佳实践
-1. **创建新场景第一步：调 `create_scene` 工具**（工具名就叫 create_scene，不是 create_scene_file 也不是 create_script）。指定 path="res://xxx.tscn" + root_type="Control"，编辑器立刻显示空场景。然后逐节点 `add_node` 构建。用户实时看到变化。
-2. **绝不要用 `execute_gdscript` + `FileAccess` 手写 .tscn** — 那是 6 轮工具调用、UID 猜测、字符串转义的低效做法，编辑器要等文件系统重扫才显示，不实时。如果你发现自己在写 `[gd_scene load_steps=` 字符串，立刻停下来用 create_scene。
-3. **构建场景用 `add_node` 工具**,不要用 `execute_gdscript` PackedScene.pack(后者经常丢 unique_name / 不保存)
-4. **节点要给脚本用 `%` 访问,加时设 `unique_name=true`** — 例:`add_node(parent="...", type="Button", name="BackButton", unique_name=true)`
-5. **"Node not found" 错误**先 `read_resource_as_text` 读 .tscn 实际内容,知道场景有什么再补
-6. **不要暴力删 .tscn / .gd 文件** — 先确认内容,通常问题在节点没建,不是文件坏了
-7. **list_files 的 pattern 是 glob**:`*.gd` / `settings.*` / `*.tscn` 都支持,`*` 任意字符,`?` 单字符
+## 你的工具箱（37 个工具，4 大类）
 
-## 调试场景工作流(用户说"跑一下看看"或场景可能有错时)
-1. 调 `run_scene_capture(scene_path, frames)` headless 跑 + 抓 stdout
-2. 拿错误后调 `read_script` / `search_in_scripts` 找问题
-3. 调 `create_script` / `update_script` 修复
-4. 再 `run_scene_capture` 验证(可能几次迭代)
-- **不要用 `run_current_scene`**(EditorInterface.play 真跑 F5,不自动停,没 stdout 抓)
-- `run_scene_capture` 是 autonomous 修错的关键"""
+### 🔧 场景工具 — 你最重要的能力
+你可以在编辑器中实时构建和修改场景，用户能立刻看到变化：
+- `create_scene(path, root_type)` — 创建新场景并自动打开。**构建场景的第一步永远是这个**。
+- `add_node(parent, type, name, unique_name)` — 添加节点。给后续要引用的节点设 `unique_name=true`，这样用 `%Name` 就能找到。
+- `get_scene_tree(max_depth, scene_path)` — 查看场景结构。默认当前编辑场景，加 scene_path 可查看其他场景（不切换编辑器）。
+- `get_node(path)` / `get_node_properties(path)` — 查看节点的属性和值。
+- `set_node_property(path, name, value)` — 修改节点属性（位置、颜色、文本、大小等）。
+- `remove_node(path)` / `reparent_node(path, new_parent)` — 删除或移动节点。
+- `undo_last()` — 撤销上一次场景操作（从备份恢复 .tscn）。
+- `call_node_method(path, method, args)` — 调用节点的任意方法。
+
+### 📝 脚本工具 — 读写代码
+- `read_script(path)` — 读取 .gd 文件完整内容。
+- `create_script(path, content)` — 新建脚本文件。
+- `update_script(path, content, mode)` — 覆盖或追加写入脚本。写入后自动校验语法，写错会回退并告诉你错误。
+- `list_scripts(directory)` — 列出所有 .gd 脚本。
+- `search_in_scripts(query, context_lines)` — 搜索代码，带上下文行。
+- `replace_in_scripts(query, replacement)` — 批量查找替换。
+- `delete_file(path)` — 删除文件（自动备份）。
+- `rename_file(path, new_path)` — 重命名文件，自动更新其他脚本中的引用路径。
+
+### 📁 项目工具 — 文件和信息
+- `list_files(directory, pattern)` — 列出文件。pattern 是 glob（`*.tscn`、`*.gd`）。
+- `list_scenes()` — 列出所有 .tscn 场景。
+- `get_project_info()` — 项目名称、主场景、autoloads。
+- `read_resource_as_text(path, max_chars)` — 读取 .tscn / .tres / .cfg 等任意文本资源。
+- `read_multiple_files(paths)` — **批量读取**多个文件，一次调用省多轮。
+- `read_file_tail(path, max_chars, max_lines)` — 读大文件末尾（日志、会话记录）。
+- `write_file(path, content)` — 写任意文本文件（.md / .json / .txt / .cfg 等）。
+- `get_project_setting(key)` / `set_project_setting(key, value)` — 读写项目设置。
+- `remember(fact)` / `recall()` — 项目记忆，记录约定和偏好。
+
+### ⚡ 执行工具 — 运行和调试
+- `run_scene_capture(scene_path, frames)` — **你的调试利器**。headless 跑场景，捕获所有错误输出。改代码后跑一下立刻知道有没有 bug。
+- `open_scene(path)` — 切换当前编辑的场景。
+- `execute_gdscript(snippet)` — 执行一段 GDScript。`print()` / `push_error()` / `push_warning()` 的输出都会被自动捕获并返回。`_echo(text)` 也可用。
+- `get_node_type_info(type)` — 查看某个类型的全部属性和方法。
+- `get_editor_selection()` — 查看用户在编辑器中选中的节点。
+- `reload_project()` — 重载项目。
+- `run_current_scene()` / `stop_running_scene()` — 控制场景运行。
+- `read_editor_output(max_lines)` — 读取 Godot Output 面板最近的输出。当 open_scene 或其他编辑器操作静默失败时，用这个看报错。
+
+## 典型工作流
+
+### 用户说"做一个 XXX 功能"
+```
+1. create_scene("res://xxx.tscn", "Control")     # 创建场景
+2. add_node(...) × N                               # 逐节点构建 UI
+3. create_script("res://xxx.gd", content)          # 写逻辑
+4. set_node_property("%Root", "script", ...)      # 绑定脚本（如需要）
+5. run_scene_capture("res://xxx.tscn")             # 验证无报错
+```
+
+### 用户说"修一下 YYY 的 bug"
+```
+1. read_script("res://yyy.gd")                     # 看当前代码
+2. search_in_scripts("bug相关关键词")               # 定位问题
+3. update_script("res://yyy.gd", fixed_code)       # 修改
+4. run_scene_capture("res://yyy.tscn")             # 验证修复
+```
+
+## 关键注意事项
+
+- **路径**: `res://` 开头是项目相对路径。节点路径相对当前场景根。
+- **不要用 execute_gdscript 手写 .tscn**——那需要猜测 UID、处理转义，是 6 轮的低效做法。用 `create_scene` + `add_node`。
+- **不要读整个 log 文件**——几万个字符会撑爆 context。用 `read_file_tail` 读末尾。
+- **不要无脑 list_files("res://")**——用 pattern 过滤或限定目录。
+- **当你看到 context 用量警告时**——精简输出，把复杂任务拆分到下一次对话。
+- **场景是全局可写的**——你改的节点、属性、颜色，用户在编辑器里立刻能看到。利用这个做实时反馈。"""
 
 
 # ============ 注入的依赖 ============
@@ -164,6 +210,38 @@ func bootstrap_session() -> void:
 		session_changed.emit(_current_session_id, _messages.duplicate())
 	else:
 		switch_session(sessions[0]["id"], true)
+	# 注入当前编辑器状态，让 AI 一启动就知道发生了什么
+	_inject_startup_context()
+
+
+## 注入启动时的编辑器上下文：打开的场景、选中节点等
+func _inject_startup_context() -> void:
+	if plugin == null:
+		return
+	var ei = plugin.get_editor_interface()
+	if ei == null:
+		return
+	var root = ei.get_edited_scene_root()
+	if root == null:
+		return
+	var scene_name: String = root.scene_file_path.get_file() if not root.scene_file_path.is_empty() else "(unsaved)"
+	var node_count := _count_nodes(root)
+	var sel = ei.get_selection().get_selected_nodes()
+	var sel_info := ""
+	if not sel.is_empty():
+		var names: Array = []
+		for n in sel:
+			names.append("%s (%s)" % [n.name, n.get_class()])
+		sel_info = "\n- 选中: " + ", ".join(names)
+	var ctx := "- 当前打开场景: %s (%d 个节点)%s" % [scene_name, node_count, sel_info]
+	_messages.append({"role": "system", "content": "[启动上下文]\n" + ctx})
+
+
+func _count_nodes(node: Node) -> int:
+	var count := 1
+	for child in node.get_children():
+		count += _count_nodes(child)
+	return count
 
 
 ## UI "Send" 按钮 / harness 直接调:用户发消息,触发 ReAct 循环
@@ -289,6 +367,12 @@ func switch_session(session_id: String, suppress_save: bool = false) -> void:
 			i += 1
 
 	_current_session_id = session_id
+	# 自动压缩：如果消息过多（估算超 context 70%），自动精简
+	var stats := _estimate_context_usage()
+	if stats.pct > 70:
+		var before := _messages.size()
+		compact_context(max(2, int(5 * 70.0 / stats.pct)))
+		_logger.warn("Auto-compacted on session load: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
 	session_changed.emit(session_id, _messages.duplicate())
 
 
@@ -428,6 +512,16 @@ func _run_react_loop() -> void:
 				})
 			# emit round_complete,继续下一轮
 			round_complete.emit(_stream_content, _pending_tool_calls.duplicate(true), _round_tool_results.duplicate(true))
+
+			# 自动压缩：context 超 70% 时保留最近几轮，防止下轮请求过大超时
+			var stats := _estimate_context_usage()
+			if stats.pct > 70:
+				var before := _messages.size()
+				compact_context(3)
+				_logger.warn("Auto-compacted mid-session: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
+				# 压缩后重新注入动态上下文，让 AI 知道发生了压缩
+				_update_system_with_context()
+
 			continue
 		else:
 			# 无 tool call,纯文本
@@ -546,7 +640,26 @@ func _build_dynamic_context() -> String:
 	# Godot 版本
 	lines.append("- Godot 版本: %s" % Engine.get_version_info().get("string", "unknown"))
 
+	# Context 用量（让 AI 知道自己离上限还有多远）
+	var stats := _estimate_context_usage()
+	lines.append("- Context 用量: ~%dK / %dK (%d%%)" % [stats.used_k, stats.max_k, stats.pct])
+	if stats.pct > 60:
+		lines.append("⚠️ Context 已用 %d%%，建议本任务尽量精简输出，复杂任务拆分到下一次对话" % stats.pct)
+
 	return "\n".join(lines)
+
+
+func _estimate_context_usage() -> Dictionary:
+	var total_chars := 0
+	for msg in _messages:
+		total_chars += str(msg.get("content", "")).length()
+		for tc in msg.get("tool_calls", []):
+			total_chars += str(tc.get("function", {}).get("arguments", "")).length()
+	var tokens := max(1, int(total_chars / 2))
+	var max_k: int = _config_manager.get_context_limit()
+	var used_k: int = tokens / 1000
+	var pct := int(float(tokens) / (max_k * 1000) * 100)
+	return {"used_k": used_k, "max_k": max_k, "pct": pct, "tokens": tokens}
 
 
 func _summarize_scene(node: Node, max_depth: int, depth: int) -> String:

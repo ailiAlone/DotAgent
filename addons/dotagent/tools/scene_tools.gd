@@ -35,11 +35,12 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "get_scene_tree",
-			"description": "Get the current edited scene tree as nested JSON. Each node includes name, type, script path, and a list of children. Use this to understand scene structure before making changes.",
+			"description": "Get the scene tree as nested JSON. Defaults to current edited scene. Use scene_path to inspect other open scenes without switching to them.",
 			"parameters": {
 				"type": "object",
 				"properties": {
 					"max_depth": {"type": "integer", "description": "Max recursion depth (default 3, max 10)", "default": 3},
+					"scene_path": {"type": "string", "description": "Optional res:// path to a specific scene. If omitted, uses the currently edited scene."},
 				},
 			},
 			"method_name": "_tool_get_scene_tree",
@@ -203,13 +204,29 @@ func _tool_get_scene_tree(args: Dictionary) -> Dictionary:
 	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
-	var root = ei.get_edited_scene_root()
+	var scene_path: String = args.get("scene_path", "")
+	var root: Node = null
+	if not scene_path.is_empty():
+		# 从文件加载场景（只读，不切换编辑器状态）
+		if not FileAccess.file_exists(scene_path):
+			return _err("Scene not found: " + scene_path)
+		var packed := load(scene_path) as PackedScene
+		if packed == null:
+			return _err("Failed to load scene: " + scene_path + " (may not be a valid PackedScene)")
+		root = packed.instantiate()
+		if root == null:
+			return _err("Failed to instantiate: " + scene_path)
+	else:
+		root = ei.get_edited_scene_root()
 	if root == null:
-		return _ok("No scene currently open in editor.")
+		return _ok("No scene found.")
 
 	var depth: int = int(args.get("max_depth", 3))
 	depth = clamp(depth, 1, 10)
 	var tree := _serialize_node(root, depth, 0)
+	# 如果是临时加载的，释放
+	if not scene_path.is_empty() and is_instance_valid(root):
+		root.queue_free()
 	return _ok(JSON.stringify(tree, "  "))
 
 
@@ -437,20 +454,18 @@ func _reown(node: Node, root: Node) -> void:
 
 
 func _emit_change() -> void:
-	# 关键:每个写操作后自动调 EditorInterface.save_scene()
-	# 之前只是 log 提示,导致 AI 改了场景但磁盘没存 → run_scene_capture 跑旧版本报错
-	# 现在:写 → 立刻存,内存和磁盘同步
 	var ei = _ei()
 	if ei == null:
 		return
 	var root = ei.get_edited_scene_root()
 	if root == null:
 		return
-	# 跳过没保存过的新场景(没文件路径)
 	if root.scene_file_path.is_empty():
 		_log_act("log_warning", "Scene has no file path (new scene). Save it manually first.")
 		return
-	ei.save_scene()
+	# 保存前先备份磁盘上的旧版本，这样 undo_last 能找到备份
+	_get_backup().backup(root.scene_file_path)
+	ei.call_deferred("save_scene")
 	_log_act("log_info", "✅ Auto-saved: " + root.scene_file_path)
 	_logger.append("SCENE", "Auto-saved: " + root.scene_file_path)
 

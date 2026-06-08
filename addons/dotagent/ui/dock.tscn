@@ -34,19 +34,19 @@ text = "📊 1K / 1024K"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-text = "会话"
+text = "Sessions"
 
 [node name="ClearButton" type="Button" parent="Header"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-text = "清除"
+text = "Clear"
 
 [node name="SettingsButton" type="Button" parent="Header"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-text = "设置"
+text = "Settings"
 
 [node name="SessionPopup" type="PopupPanel" parent="Header"]
 unique_name_in_owner = true
@@ -61,8 +61,8 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = 4.0
 offset_top = 4.0
-offset_right = 476.0
-offset_bottom = 396.0
+offset_right = -4.0
+offset_bottom = -4.0
 
 [node name="TopBar" type="HBoxContainer" parent="Header/SessionPopup/SessionVBox"]
 unique_name_in_owner = true
@@ -71,7 +71,7 @@ layout_mode = 2
 [node name="NewButton" type="Button" parent="Header/SessionPopup/SessionVBox/TopBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "新建"
+text = "New"
 
 [node name="Spacer" type="Control" parent="Header/SessionPopup/SessionVBox/TopBar"]
 layout_mode = 2
@@ -81,7 +81,7 @@ size_flags_horizontal = 3
 unique_name_in_owner = true
 custom_minimum_size = Vector2(160, 0)
 layout_mode = 2
-placeholder_text = "搜索…"
+placeholder_text = "search…"
 
 [node name="SessionList" type="ItemList" parent="Header/SessionPopup/SessionVBox"]
 unique_name_in_owner = true
@@ -95,22 +95,22 @@ layout_mode = 2
 [node name="SwitchButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "切换"
+text = "Switch"
 
 [node name="RenameButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "重命名"
+text = "Rename"
 
 [node name="ForkButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "分支"
+text = "Fork"
 
 [node name="DeleteButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "删除"
+text = "Delete"
 
 [node name="Spacer2" type="Control" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 layout_mode = 2
@@ -119,13 +119,14 @@ size_flags_horizontal = 3
 [node name="CloseButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "关闭"
+text = "Close"
 
 [node name="MessageScroll" type="ScrollContainer" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 follow_focus = true
+scroll_vertical = 4776
 horizontal_scroll_mode = 0
 
 [node name="MessageList" type="VBoxContainer" parent="MessageScroll"]
@@ -146,7 +147,7 @@ custom_minimum_size = Vector2(0, 80)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-placeholder_text = "让 AI 做点什么...（回车发送，Shift+回车换行）"
+placeholder_text = "Ask AI to do something... (Enter to send, Shift+Enter for newline)"
 wrap_mode = 1
 
 [node name="ButtonCol" type="VBoxContainer" parent="InputBar"]
@@ -157,11 +158,11 @@ size_flags_vertical = 3
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-text = "发送"
+text = "Send"
 
 [node name="StopButton" type="Button" parent="InputBar/ButtonCol"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 disabled = true
-text = "停止"
+text = "Stop"

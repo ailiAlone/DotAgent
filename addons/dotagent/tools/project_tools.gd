@@ -12,6 +12,10 @@ extends "res://addons/dotagent/core/tool_base.gd"
 ## - read_resource_as_text
 ## - remember
 ## - recall
+## - export_session
+## - write_file
+## - read_file_tail
+## - read_multiple_files
 
 
 
@@ -120,6 +124,49 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_export_session",
 			"dangerous": false,
 		},
+		{
+			"name": "write_file",
+			"description": "Write a text file (.md, .txt, .json, .cfg, .csv, etc). Creates parent directories if needed.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "res:// path, e.g. 'res://docs/notes.md'"},
+					"content": {"type": "string", "description": "File content to write"},
+				},
+				"required": ["path", "content"],
+			},
+			"method_name": "_tool_write_file",
+			"dangerous": true,
+		},
+		{
+			"name": "read_file_tail",
+			"description": "Read the last N characters or lines of a file. Use for reading log tails, conversation endings, or large file ends without loading the whole file.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "res:// path"},
+					"max_chars": {"type": "integer", "description": "Max chars from end (default 3000)", "default": 3000},
+					"max_lines": {"type": "integer", "description": "Max lines from end (default 0 = disabled)", "default": 0},
+				},
+				"required": ["path"],
+			},
+			"method_name": "_tool_read_file_tail",
+			"dangerous": false,
+		},
+		{
+			"name": "read_multiple_files",
+			"description": "Read multiple files at once. Much faster than calling read_script/read_resource_as_text one by one. Returns JSON {path: content}.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"paths": {"type": "array", "items": {"type": "string"}, "description": "Array of res:// paths"},
+					"max_chars_per_file": {"type": "integer", "description": "Max chars per file (default 2500)", "default": 2500},
+				},
+				"required": ["paths"],
+			},
+			"method_name": "_tool_read_multiple_files",
+			"dangerous": false,
+		},
 	]
 
 
@@ -135,6 +182,9 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_remember": return _tool_remember(args)
 		"_tool_recall": return _tool_recall(args)
 		"_tool_export_session": return _tool_export_session(args)
+		"_tool_write_file": return _tool_write_file(args)
+		"_tool_read_file_tail": return _tool_read_file_tail(args)
+		"_tool_read_multiple_files": return _tool_read_multiple_files(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -278,3 +328,79 @@ func _tool_export_session(args: Dictionary) -> Dictionary:
 	fw.store_string(content)
 	fw.close()
 	return _ok("Exported to: " + dst)
+
+
+func _tool_write_file(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var content: String = args.get("content", "")
+	if path.is_empty():
+		return _err("path is required")
+	# 备份旧内容
+	if FileAccess.file_exists(path):
+		_get_backup().backup(path)
+	# 确保目录存在
+	_ensure_dir(path)
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return _err("Cannot open file for writing: " + path)
+	f.store_string(content)
+	f.close()
+	_refresh_filesystem()
+	return _ok("Wrote %d bytes to %s" % [content.length(), path])
+
+
+func _tool_read_file_tail(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var max_chars: int = int(args.get("max_chars", 3000))
+	var max_lines: int = int(args.get("max_lines", 0))
+	if path.is_empty():
+		return _err("path is required")
+	if not FileAccess.file_exists(path):
+		return _err("File not found: " + path)
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return _err("Cannot open: " + path)
+	var full := f.get_as_text()
+	f.close()
+	if max_lines > 0:
+		var all_lines := full.split("\n")
+		var start := max(0, all_lines.size() - max_lines)
+		var tail_lines: Array = []
+		for i in range(start, all_lines.size()):
+			tail_lines.append(all_lines[i])
+		var result := "\n".join(tail_lines)
+		if result.length() > max_chars * 2:
+			result = result.substr(result.length() - max_chars * 2)
+		return _ok("[last %d lines]\n%s" % [tail_lines.size(), result])
+	else:
+		if full.length() <= max_chars:
+			return _ok(full)
+		var tail := full.substr(full.length() - max_chars)
+		return _ok("[last %d chars of %d]\n%s" % [tail.length(), full.length(), tail])
+
+
+func _tool_read_multiple_files(args: Dictionary) -> Dictionary:
+	var paths: Array = args.get("paths", [])
+	var max_chars_per_file: int = int(args.get("max_chars_per_file", 2500))
+	if paths.is_empty():
+		return _err("paths is required (array of res:// paths)")
+	var results := {}
+	var errors := []
+	for p in paths:
+		var path: String = str(p)
+		if not FileAccess.file_exists(path):
+			errors.append("Not found: " + path)
+			continue
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f == null:
+			errors.append("Cannot read: " + path)
+			continue
+		var content := f.get_as_text()
+		f.close()
+		if content.length() > max_chars_per_file:
+			content = content.substr(0, max_chars_per_file) + "\n... [truncated, %d more chars]" % (content.length() - max_chars_per_file)
+		results[path] = content
+	var summary := "Read %d files" % results.size()
+	if not errors.is_empty():
+		summary += " (%d errors: %s)" % [errors.size(), ", ".join(errors)]
+	return _ok(summary + "\n\n" + JSON.stringify(results, "  "))
