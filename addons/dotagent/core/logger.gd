@@ -56,16 +56,18 @@ func end_session(messages: Array, meta_extra: Dictionary = {}) -> void:
 	_session_id = ""
 
 
-## 一行 log:同时 print 到 Godot console + 存到 buffer
+## 一行 log:同时 print 到 Godot console + 写 buffer + 实时落盘 editor_output.txt
+## 每行立即 flush 到磁盘，确保崩溃时不丢日志。
 func append(source: String, text: String) -> void:
 	var t := Time.get_time_string_from_system()
 	var line := "%s [%s] %s" % [t, source, text]
 	if _session_id.is_empty():
-		# 没在 session 里,只 print
 		print(line)
 		return
 	_buffer.append(line)
 	print(line)
+	# 实时追加写入 editor_output.txt，每次只追加一行
+	_flush_line(line)
 
 
 ## 警告:同时 push_warning(让 Godot 红色标) + 写 log
@@ -95,6 +97,16 @@ func _write_editor_output() -> void:
 		return
 	f.store_string("\n".join(_buffer))
 	f.store_string("\n\n# 注意：Godot 引擎级错误(push_error)无法被插件捕获，请查看 Godot 编辑器的 Output 面板")
+	f.close()
+
+
+## 实时写入 editor_output.txt（每行 log 触发一次，确保崩溃时不丢日志）
+func _flush_line(_line: String) -> void:
+	var path := _session_dir.path_join("editor_output.txt")
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string("\n".join(_buffer))
 	f.close()
 
 

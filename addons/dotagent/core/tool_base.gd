@@ -78,13 +78,50 @@ func _walk_dir(dir: String, out: Array, extensions: Array, pattern: String = "")
 
 
 ## 确保文件路径的所有父目录都存在
+## 处理 res:// 路径，跳过根目录（res:/ / res://）避免 "Could not create directory" 错误
 func _ensure_dir(path: String) -> void:
 	var last_slash := path.rfind("/")
 	if last_slash <= 0:
 		return
 	var dir := path.substr(0, last_slash)
+	# 如果目录部分只是根路径（文件在项目根目录），无需创建目录
+	var trimmed := dir.strip_edges()
+	if trimmed == "res:" or trimmed == "res:/" or trimmed == "res://":
+		return
 	if not DirAccess.dir_exists_absolute(dir):
 		DirAccess.make_dir_recursive_absolute(dir)
+
+
+## 将 JSON 基本类型自动转换为 Godot 原生类型
+## 解决 JSON 传 Color / Vector2 / Rect2 等复杂类型的问题
+## {"r":1,"g":0.5,"b":0} → Color(1, 0.5, 0)
+## {"x":64, "y":64} → Vector2(64, 64)
+## "#ff8800" → Color("#ff8800")
+func _parse_property_value(raw: Variant) -> Variant:
+	if typeof(raw) != TYPE_DICTIONARY and typeof(raw) != TYPE_STRING:
+		return raw
+	if typeof(raw) == TYPE_DICTIONARY:
+		var d: Dictionary = raw
+		# Color: 必须有 r + g + b（a 可选）
+		if d.has("r") and d.has("g") and d.has("b"):
+			return Color(float(d.get("r", 0)), float(d.get("g", 0)), float(d.get("b", 0)), float(d.get("a", 1.0)))
+		# Vector2: 必须有 x + y
+		if d.has("x") and d.has("y") and not d.has("z"):
+			return Vector2(float(d.get("x", 0)), float(d.get("y", 0)))
+		# Vector3: x + y + z
+		if d.has("x") and d.has("y") and d.has("z"):
+			return Vector3(float(d.get("x", 0)), float(d.get("y", 0)), float(d.get("z", 0)))
+		# Rect2: position + size
+		if d.has("position") and d.has("size"):
+			var pos = _parse_property_value(d["position"])
+			var sz = _parse_property_value(d["size"])
+			if pos is Vector2 and sz is Vector2:
+				return Rect2(pos, sz)
+	if typeof(raw) == TYPE_STRING:
+		var s: String = raw
+		if s.begins_with("#") and s.length() >= 7:
+			return Color(s)
+	return raw
 
 
 ## 触发编辑器文件系统扫描（让新创建的文件立刻可见）

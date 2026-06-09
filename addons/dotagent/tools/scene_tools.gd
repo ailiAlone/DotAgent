@@ -133,10 +133,35 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "undo_last",
-			"description": "Undo the last scene operation by restoring the most recent backup. Use when a tool call had an unintended side effect.",
+			"description": "Undo the last scene operation by restoring the most recent backup. Safe — this tool REVERSES damage, not causes it.",
 			"parameters": {"type": "object", "properties": {}},
 			"method_name": "_tool_undo_last",
-			"dangerous": true,
+			"dangerous": false,
+		},
+		{
+			"name": "list_nodes",
+			"description": "Get a flat list of all nodes in the scene with name, type, path, and child count. Much shorter than get_scene_tree — one line per node. Use for quick overview of scene structure.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"scene_path": {"type": "string", "description": "Optional res:// path to a specific scene. If omitted, uses the currently edited scene."},
+				},
+			},
+			"method_name": "_tool_list_nodes",
+			"dangerous": false,
+		},
+		{
+			"name": "get_signal_connections",
+			"description": "List all signal connections on a node — both editor-connected (Inspector → Node tab) and script-connected (.connect()). Shows signal name, target node path, and target method. Use to understand what happens when a signal fires.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Node path, e.g. 'Center/MenuContainer/StartButton'"},
+				},
+				"required": ["path"],
+			},
+			"method_name": "_tool_get_signal_connections",
+			"dangerous": false,
 		},
 	]
 
@@ -152,6 +177,8 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_remove_node": return _tool_remove_node(args)
 		"_tool_reparent_node": return _tool_reparent_node(args)
 		"_tool_undo_last": return _tool_undo_last(args)
+		"_tool_list_nodes": return _tool_list_nodes(args)
+		"_tool_get_signal_connections": return _tool_get_signal_connections(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -299,7 +326,7 @@ func _tool_set_node_property(args: Dictionary) -> Dictionary:
 	if not args.has("value"):
 		return _err("Missing 'value' parameter")
 	var value = args["value"]
-	node.set(prop_name, value)
+	node.set(prop_name, _parse_property_value(value))
 	_emit_change()
 	return _ok("Set %s.%s = %s" % [node.name, prop_name, str(value)])
 
@@ -364,14 +391,7 @@ func _tool_reparent_node(args: Dictionary) -> Dictionary:
 	var new_parent := _resolve_node(args.get("new_parent_path", ""))
 	if new_parent == null:
 		return _err("New parent not found")
-	var ei = _ei()
-	var root: Node = ei.get_edited_scene_root() if ei else null
-	if root == null:
-		return _err("No scene open")
-	# 重新设 owner
-	var old_data = node.duplicate()
-	new_parent.add_child(node)
-	_reown(node, root)
+	node.reparent(new_parent)
 	_emit_change()
 	return _ok("Reparented '%s' under '%s'" % [node.name, new_parent.name])
 
@@ -410,7 +430,275 @@ func _tool_undo_last(args: Dictionary) -> Dictionary:
 	return _ok("Restored scene from backup: " + latest)
 
 
-# ============ 辅助 ============
+## 扁平列出场景所有节点（name, type, path, child_count），每节点一行
+func _tool_list_nodes(args: Dictionary) -> Dictionary:
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
+	var scene_path: String = args.get("scene_path", "")
+	var root: Node = null
+	var temp_root := false
+	if not scene_path.is_empty():
+		if not FileAccess.file_exists(scene_path):
+			return _err("Scene not found: " + scene_path)
+		var packed := load(scene_path) as PackedScene
+		if packed == null:
+			return _err("Failed to load scene: " + scene_path)
+		root = packed.instantiate()
+		if root == null:
+			return _err("Failed to instantiate: " + scene_path)
+		temp_root = true
+	else:
+		root = ei.get_edited_scene_root()
+	if root == null:
+		return _ok("No scene found.")
+
+	var result: Array = []
+	_list_nodes_flat(root, result)
+
+	if temp_root and is_instance_valid(root):
+		root.queue_free()
+
+	var lines: Array = []
+	for item in result:
+		lines.append("%-25s %-20s child=%d  %s" % [item["name"], item["type"], item["child_count"], item["path"]])
+	return _ok("%d nodes:\n%s" % [result.size(), "\n".join(lines)])
+
+
+func _list_nodes_flat(node: Node, out: Array) -> void:
+	out.append({
+		"name": node.name,
+		"type": node.get_class(),
+		"path": str(node.get_path()),
+		"child_count": node.get_child_count(),
+	})
+	for child in node.get_children():
+		_list_nodes_flat(child, out)
+
+
+## 列出节点的所有信号连接（编辑器 + 脚本）
+	## 扫描 3 个来源：
+	##   1. 脚本 .connect() 连接（静态分析场景中所有脚本的 .connect 调用）
+	##   2. Inspector Node 标签页连接（.tscn 的 [connection] 段）
+	##   3. get_signal_connection_list（编辑器内部连接，如 SceneTreeEditor）
+	##   4. 传入连接（get_incoming_connections — 其他节点连到本节点的方法）
+	func _tool_get_signal_connections(args: Dictionary) -> Dictionary:
+		var node := _resolve_node(args.get("path", ""))
+		if node == null:
+			return _err("Node not found")
+
+		var ei = _ei()
+		var root = ei.get_edited_scene_root() if ei else null
+		var result: Array = []
+
+		# ---- 1. 脚本 .connect() 静态分析 ----
+		# 扫描场景中所有脚本，找 node_path.signal_name.connect(method) 模式
+		if root:
+			var node_rel_path := str(root.get_path_to(node))
+			var node_name := node.name
+			var scripts_to_scan: Array = []
+			# 收集场景中所有节点的脚本
+			scripts_to_scan.append({"path": root.scene_file_path, "type": "tscn"})
+			_collect_scripts(root, scripts_to_scan)
+
+			var seen_pairs := {}  # 去重: "signal->method"
+			for entry in scripts_to_scan:
+				if entry.type == "gd":
+					var f_script := FileAccess.open(entry.path, FileAccess.READ)
+					if f_script == null:
+						continue
+					var script_content := f_script.get_as_text()
+					f_script.close()
+					var script_lines := script_content.split("
+")
+					for line_idx in range(script_lines.size()):
+						var line := script_lines[line_idx].strip_edges()
+						if line.begins_with("#") or line.begins_with("//"):
+							continue
+						# 匹配: %NodeName.signal_name.connect(method) 或 NodeName.signal_name.connect(method)
+						# 也匹配: node_var.signal_name.connect(Callable(self, "method"))
+						if not ".connect(" in line:
+							continue
+						# 检查是否指向目标节点: %Name, Name, 或 onready 变量引用
+						var points_to_node := false
+						if ("%" + node_name) in line or node_name in line:
+							points_to_node = true
+						# 也检查: node_rel_path 中的节点名片段
+						if node_rel_path in line:
+							points_to_node = true
+						if not points_to_node:
+							continue
+						# 提取信号名和方法名
+						var dot_idx := line.find(".connect(")
+						if dot_idx < 0:
+							continue
+						var before_dot := line.substr(0, dot_idx).strip_edges()
+						# 信号名在 . 之前的部分末尾: "btn.pressed" → "pressed"
+						var space_idx := before_dot.rfind(" ")
+						var sig_candidate := before_dot.substr(space_idx + 1).strip_edges()
+						# 信号名也可能在 . 之前: %StartButton.pressed
+						var last_dot := before_dot.rfind(".")
+						if last_dot >= 0:
+							sig_candidate = before_dot.substr(last_dot + 1).strip_edges()
+						# 提取方法名: .connect(_on_start_pressed) 或 .connect(Callable(self, "method"))
+						var paren_start := line.find("(", dot_idx)
+						var paren_end := _find_matching_paren(line, paren_start)
+						if paren_end < 0:
+							continue
+						var args_str := line.substr(paren_start + 1, paren_end - paren_start - 1)
+						var method_name := ""
+						if args_str.begins_with("Callable("):
+							# Callable(self, "method_name")
+							var parts := args_str.substr(9).split(",")
+							if parts.size() >= 2:
+								method_name = parts[1].strip_edges().strip_edges('"').strip_edges("'")
+						else:
+							# 直接方法名 .connect(method_name)
+							method_name = args_str.strip_edges().strip_edges('"').strip_edges("'")
+
+						if method_name.is_empty():
+							continue
+						var pair_key := sig_candidate + "->" + method_name
+						if seen_pairs.has(pair_key):
+							continue
+						seen_pairs[pair_key] = true
+						result.append({
+							"signal": sig_candidate if sig_candidate.is_empty() else sig_candidate,
+							"target": {"node": "(" + entry.path.get_file().get_basename() + ")", "method": method_name},
+							"source": "script (" + entry.path.get_file() + ":" + str(line_idx + 1) + ")",
+						})
+
+		# ---- 2. Inspector 连接（从 .tscn 的 [connection] 段解析） ----
+		if root and not root.scene_file_path.is_empty():
+			var node_rel_path := str(root.get_path_to(node))
+			var f_tscn := FileAccess.open(root.scene_file_path, FileAccess.READ)
+			if f_tscn:
+				var tscn_content := f_tscn.get_as_text()
+				f_tscn.close()
+				for line in tscn_content.split("
+"):
+					line = line.strip_edges()
+					if not line.begins_with("[connection "):
+						continue
+					var sig_name := _extract_tscn_attr(line, "signal")
+					var from_path := _extract_tscn_attr(line, "from")
+					var to_path := _extract_tscn_attr(line, "to")
+					var method := _extract_tscn_attr(line, "method")
+					if sig_name.is_empty() or method.is_empty():
+						continue
+					if from_path == node_rel_path:
+						result.append({
+							"signal": sig_name,
+							"target": {"node": to_path if to_path and to_path != "." else "(root)", "method": method},
+							"source": "editor (inspector)",
+						})
+
+		# ---- 3. 运行时连接（get_signal_connection_list）----
+		for sig in node.get_signal_list():
+			var sig_name: String = sig["name"]
+			var conns := node.get_signal_connection_list(sig_name)
+			for c in conns:
+				var target_obj = c.get("callable", null)
+				if target_obj == null:
+					continue
+				var target_info := _describe_callable(target_obj)
+				var pair_key := sig_name + "->" + target_info.get("method", "?")
+				# 去重：避免和静态分析重复
+				var already_seen := false
+				for r in result:
+					if r.get("signal") == sig_name and r.get("target", {}).get("method") == target_info.get("method", "?"):
+						already_seen = true
+						break
+				if not already_seen:
+					result.append({
+						"signal": sig_name,
+						"target": target_info,
+						"source": "runtime",
+					})
+
+		# ---- 4. 传入连接 ----
+		for inc in node.get_incoming_connections():
+			var src_signal: String = inc.get("signal_name", "?")
+			var target_callable = inc.get("callable", null)
+			var ti := _describe_callable(target_callable)
+			result.append({
+				"signal": src_signal,
+				"target": {"node": node.name, "method": ti.get("method", "?")},
+				"direction": "incoming",
+				"source": "incoming",
+			})
+
+		if result.is_empty():
+			return _ok("(no signal connections found on '%s')" % node.name)
+
+		var lines: Array = []
+		lines.append("Signal connections on '%s' (%d total):" % [node.name, result.size()])
+		for r in result:
+			var sig: String = r.get("signal", "?")
+			var tgt: Dictionary = r.get("target", {})
+			if r.get("direction") == "incoming":
+				lines.append("  ← %s.%s  [incoming]" % [tgt.get("node", "?"), tgt.get("method", "?")])
+			else:
+				var src := r.get("source", "?")
+				lines.append("  %s → %s.%s  [%s]" % [sig, tgt.get("node", "?"), tgt.get("method", "?"), src])
+		return _ok("
+".join(lines))
+
+
+	## 找匹配的右括号
+	func _find_matching_paren(line: String, open_idx: int) -> int:
+		var depth := 0
+		for i in range(open_idx, line.length()):
+			var ch := line[i]
+			if ch == '(':
+				depth += 1
+			elif ch == ')':
+				depth -= 1
+				if depth == 0:
+					return i
+		return -1
+
+
+	## 从 [connection signal="x" from="y" to="z" method="w"] 中提取属性值
+	func _extract_tscn_attr(line: String, attr: String) -> String:
+		var search := attr + '="'
+		var start := line.find(search)
+		if start < 0:
+			return ""
+		start += search.length()
+		var end := line.find('"', start)
+		if end < 0:
+			return ""
+		return line.substr(start, end - start)
+
+
+	## 递归收集节点上的脚本路径
+	func _collect_scripts(node: Node, out: Array) -> void:
+		var script = node.get_script()
+		if script != null and not script.resource_path.is_empty():
+			var path = script.resource_path
+			# 去重
+			var already := false
+			for entry in out:
+				if entry.path == path:
+					already = true
+					break
+			if not already:
+				out.append({"path": path, "type": "gd"})
+		for child in node.get_children():
+			_collect_scripts(child, out)
+
+
+	## 将 Callable 描述为可读信息
+	func _describe_callable(c: Variant) -> Dictionary:
+		if c == null:
+			return {"node": "?", "method": "?"}
+		var s := str(c)
+		# Godot 4 Callable 的字符串格式: "NodeName::method_name"
+		if s.contains("::"):
+			var parts := s.split("::")
+			return {"node": parts[0].trim_prefix("<").trim_suffix(">"), "method": parts[1]}
+		return {"node": "?", "method": s}# ============ 辅助 ============
 
 func _resolve_node(path: String) -> Node:
 	var ei = _ei()

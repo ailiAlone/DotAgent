@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://b7y2hbdp4xo57"]
+
+[node name="test_reparent" type="Control"]
+layout_mode = 3
+anchors_preset = 0
+
+[node name="ChildA" type="Button" parent="."]
+layout_mode = 0
+
+[node name="ChildB" type="Button" parent="ChildA"]
+layout_mode = 0
+offset_right = 8.0
+offset_bottom = 8.0

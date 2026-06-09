@@ -27,6 +27,7 @@ var _controller: DockController = null
 @onready var stop_button: Button = %StopButton
 @onready var settings_button: Button = %SettingsButton
 @onready var clear_button: Button = %ClearButton
+@onready var compact_button: Button = %CompactButton
 @onready var session_button: Button = %SessionButton
 @onready var session_popup: PopupPanel = %SessionPopup
 @onready var session_list: ItemList = %SessionList
@@ -71,6 +72,7 @@ func _ready() -> void:
 	stop_button.pressed.connect(_on_stop_pressed)
 	settings_button.pressed.connect(_on_settings_pressed)
 	clear_button.pressed.connect(_on_clear_pressed)
+	compact_button.pressed.connect(_on_compact_pressed)
 	session_button.pressed.connect(_on_session_pressed)
 	new_button.pressed.connect(_on_new_session_pressed)
 	switch_button.pressed.connect(_on_switch_session_pressed)
@@ -174,19 +176,90 @@ func _on_session_changed(_session_id: String, _messages: Array) -> void:
 	# 重渲消息列表
 	for child in message_list.get_children():
 		child.queue_free()
-	for msg in _messages:
+
+	var i := 0
+	while i < _messages.size():
+		var msg: Dictionary = _messages[i]
 		var role: String = msg.get("role", "?")
+
 		if role == "system":
+			i += 1
 			continue
+
 		var content = msg.get("content", "")
 		if content == null:
 			content = ""
+
 		if role == "user":
 			_append_user_node(content)
+			i += 1
+
 		elif role == "assistant":
-			var node := _append_message_node("assistant", "")
-			node.append_text(content)
+			var has_tool_calls: bool = msg.has("tool_calls") and not msg["tool_calls"].is_empty()
+			if not has_tool_calls:
+				# 纯文本 assistant 消息 — 直接渲染
+				var node := _append_message_node("assistant", "")
+				node.append_text(content)
+				i += 1
+			else:
+				# 带 tool_calls 的 assistant 消息 — 收集后续 tool 结果
+				var tool_calls: Array = msg.get("tool_calls", [])
+				var tool_results: Array = []
+
+				# 扫描后续 tool 消息
+				var j := i + 1
+				while j < _messages.size() and _messages[j].get("role", "") == "tool":
+					var tc_id: String = _messages[j].get("tool_call_id", "")
+					var tc_name := _find_tool_name(tool_calls, tc_id)
+					var tc_content: String = _messages[j].get("content", "")
+					var ok := not tc_content.begins_with("Error") and not tc_content.begins_with("Failed")
+					tool_results.append({"name": tc_name, "ok": ok})
+					j += 1
+
+				# 渲染 assistant 消息节点 + 工具结果摘要
+				var node := _append_message_node("assistant", "")
+				node.append_text(content)
+				_append_tool_results_for_history(node, tool_results)
+				i = j
+
+		elif role == "tool":
+			# 孤立 tool 消息（前面没有 assistant）— 跳过
+			i += 1
+
+		else:
+			i += 1
+
 	_refresh_title()
+
+
+## 从 tool_calls 数组里按 id 找 tool name
+func _find_tool_name(tool_calls: Array, call_id: String) -> String:
+	for tc in tool_calls:
+		if tc.get("id", "") == call_id:
+			return tc.get("function", {}).get("name", "?")
+	return "?"
+
+
+## 为历史 session 渲染工具结果摘要（类似 _finalize_stream_node，但无"等待下一轮"文本）
+func _append_tool_results_for_history(node: RichTextLabel, tool_results: Array) -> void:
+	if tool_results.is_empty():
+		return
+	var ok_count := 0
+	var err_count := 0
+	for r in tool_results:
+		if r.get("ok", true):
+			ok_count += 1
+		else:
+			err_count += 1
+	node.append_text("\n")
+	if err_count > 0:
+		node.append_text("[color=#ddaa66][i]— %d ok, %d failed —[/i][/color]\n" % [ok_count, err_count])
+	else:
+		node.append_text("[color=#88aa88][i]— %d tools all ok —[/i][/color]\n" % ok_count)
+	for r in tool_results:
+		var mark := "✅" if r.get("ok", true) else "❌"
+		var color := "#88cc88" if r.get("ok", true) else "#dd6666"
+		node.append_text("[color=%s]  %s %s[/color]\n" % [color, mark, r.get("name", "?")])
 
 
 # ============ UI 事件 → controller 转发 ============
@@ -230,6 +303,13 @@ func _on_clear_pressed() -> void:
 		child.queue_free()
 	# clear_messages 不会 emit session_changed,需要手动重渲 system
 	_append_assistant_node("[i]" + Locale.t("— cleared —") + "[/i]")
+
+
+func _on_compact_pressed() -> void:
+	if _controller.is_running():
+		return
+	_controller.compact_context(5)
+	_update_context_label()
 
 
 # ============ Session UI ============
@@ -466,6 +546,7 @@ func _apply_locale() -> void:
 	Locale.set_lang(_controller.get_config_manager().get_language())
 	_set_text(%SessionButton, Locale.t("Sessions"))
 	_set_text(%ClearButton, Locale.t("Clear"))
+	_set_text(%CompactButton, Locale.t("Compact"))
 	_set_text(%SettingsButton, Locale.t("Settings"))
 	_set_text(%SendButton, Locale.t("Send"))
 	_set_text(%StopButton, Locale.t("Stop"))
@@ -494,25 +575,19 @@ func _set_placeholder(node: Node, text: String) -> void:
 func _update_context_label() -> void:
 	if context_label == null or not is_instance_valid(context_label):
 		return
-	var msgs: Array = _controller.get_messages()
-	if msgs.is_empty():
+	var stats := _controller.estimate_context_usage()
+	var used_k: int = stats.get("used_k", 0)
+	var max_k: int = stats.get("max_k", 128)
+	var pct: int = stats.get("pct", 0)
+	if used_k == 0:
 		context_label.text = ""
 		return
-	var total_chars := 0
-	for msg in msgs:
-		total_chars += str(msg.get("content", "")).length()
-		for tc in msg.get("tool_calls", []):
-			total_chars += str(tc.get("function", {}).get("arguments", "")).length()
-	var tokens := max(1, int(total_chars / 2))
-	var max_k: int = _controller.get_config_manager().get_context_limit()
-	var used_k: int = tokens / 1000
-	var pct := float(tokens) / (max_k * 1000)
 	var color := Color(0.5, 0.85, 0.5)
-	if pct > 0.5:
+	if pct > 50:
 		color = Color(0.95, 0.45, 0.45)
-	elif pct > 0.25:
+	elif pct > 25:
 		color = Color(0.95, 0.65, 0.2)
-	context_label.text = "📊 %dK / %dK" % [used_k, max_k]
+	context_label.text = "📊 %dK / %dK (%d%%)" % [used_k, max_k, pct]
 	context_label.add_theme_color_override("font_color", color)
 
 

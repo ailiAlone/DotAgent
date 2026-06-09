@@ -81,7 +81,7 @@ func get_tool_definitions() -> Array:
 				"required": ["key", "value"],
 			},
 			"method_name": "_tool_set_project_setting",
-			"dangerous": true,
+			"dangerous": false,
 		},
 		{
 			"name": "read_resource_as_text",
@@ -136,7 +136,7 @@ func get_tool_definitions() -> Array:
 				"required": ["path", "content"],
 			},
 			"method_name": "_tool_write_file",
-			"dangerous": true,
+			"dangerous": false,
 		},
 		{
 			"name": "read_file_tail",
@@ -167,6 +167,62 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_read_multiple_files",
 			"dangerous": false,
 		},
+		{
+			"name": "preview_backup",
+			"description": "Preview recent backups for a file. Shows timestamp + first 400 chars of each backup. Use before undo_last to see what you're restoring. Returns up to 3 most recent backups.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Target file path, e.g. 'res://main_menu.tscn' or 'res://player.gd'"},
+				},
+				"required": ["path"],
+			},
+			"method_name": "_tool_preview_backup",
+			"dangerous": false,
+		},
+		{
+			"name": "create_resource",
+			"description": "Create a .tres or .res resource file of any Resource type (StyleBoxFlat, PlaceholderTexture2D, ShaderMaterial, Theme, Curve, etc). Set initial properties via the properties dict. Use for UI themes, placeholder textures, materials — anything that needs a .tres file.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Path, e.g. 'res://ui/red_panel.tres'"},
+					"type": {"type": "string", "description": "Resource class name, e.g. 'StyleBoxFlat', 'PlaceholderTexture2D', 'ShaderMaterial'"},
+					"properties": {"type": "object", "description": "Initial properties as {name: value} dict. Values are parsed as JSON."},
+				},
+				"required": ["path", "type"],
+			},
+			"method_name": "_tool_create_resource",
+			"dangerous": false,
+		},
+		{
+			"name": "get_input_actions",
+			"description": "List all input actions defined in the project's Input Map (project.godot). Returns action names and their bound events (key, mouse button, joypad).",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_get_input_actions",
+			"dangerous": false,
+		},
+		{
+			"name": "add_input_action",
+			"description": "Add a new input action to the project Input Map. Events are simple objects: {\"type\": \"key\", \"code\": \"KEY_SPACE\"} or {\"type\": \"mouse\", \"button\": 1}. Persists to project.godot.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Action name, e.g. 'jump', 'shoot'"},
+					"events": {"type": "array", "description": "Event objects, e.g. [{\"type\":\"key\", \"code\":\"KEY_SPACE\"}]"},
+				},
+				"required": ["name"],
+			},
+			"method_name": "_tool_add_input_action",
+			"dangerous": false,
+		},
+		{
+			"name": "cleanup_backups",
+			"description": "Delete backup directories exceeding the retention limit (keeps 10 newest). Use to silence 'Failed parse script' noise from the GDScript Language Server scanning old broken backups.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_cleanup_backups",
+			"dangerous": true,
+		},
 	]
 
 
@@ -185,6 +241,11 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_write_file": return _tool_write_file(args)
 		"_tool_read_file_tail": return _tool_read_file_tail(args)
 		"_tool_read_multiple_files": return _tool_read_multiple_files(args)
+		"_tool_preview_backup": return _tool_preview_backup(args)
+		"_tool_create_resource": return _tool_create_resource(args)
+		"_tool_get_input_actions": return _tool_get_input_actions(args)
+		"_tool_add_input_action": return _tool_add_input_action(args)
+		"_tool_cleanup_backups": return _tool_cleanup_backups(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -345,7 +406,9 @@ func _tool_write_file(args: Dictionary) -> Dictionary:
 		return _err("Cannot open file for writing: " + path)
 	f.store_string(content)
 	f.close()
-	_refresh_filesystem()
+	# 不调 _refresh_filesystem() — 新建文件会触发 Godot 全局脚本重载，
+	# 重载会杀掉所有挂起的协程（包括 _run_react_loop），导致 session 被截断。
+	# 文件已落盘，编辑器稍后会自然发现。
 	return _ok("Wrote %d bytes to %s" % [content.length(), path])
 
 
@@ -404,3 +467,168 @@ func _tool_read_multiple_files(args: Dictionary) -> Dictionary:
 	if not errors.is_empty():
 		summary += " (%d errors: %s)" % [errors.size(), ", ".join(errors)]
 	return _ok(summary + "\n\n" + JSON.stringify(results, "  "))
+
+
+## 创建 .tres / .res 资源文件
+func _tool_create_resource(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var type: String = args.get("type", "")
+	var properties: Dictionary = args.get("properties", {})
+
+	if path.is_empty():
+		return _err("path is required")
+	if type.is_empty():
+		return _err("type is required (e.g. 'StyleBoxFlat', 'PlaceholderTexture2D')")
+	if not path.ends_with(".tres") and not path.ends_with(".res"):
+		return _err("path must end with .tres or .res")
+	if not ClassDB.class_exists(type):
+		return _err("Unknown class: " + type)
+	if not ClassDB.is_parent_class(type, "Resource"):
+		return _err(type + " is not a Resource type. Use a class that inherits from Resource.")
+	if FileAccess.file_exists(path):
+		return _err("File already exists: " + path + ". Use a different path or delete the existing file first.")
+
+	var res = ClassDB.instantiate(type)
+	if res == null:
+		return _err("Failed to instantiate: " + type + " (may not be directly instantiable)")
+
+	for key in properties.keys():
+		res.set(key, _parse_property_value(properties[key]))
+
+	_ensure_dir(path)
+	var err := ResourceSaver.save(res, path)
+	if err != OK:
+		return _err("Failed to save: " + error_string(err))
+
+	# 不调 _refresh_filesystem() — 新建 .tres 文件会触发 Godot 全局脚本重载，
+	# 重载会杀掉所有挂起的协程（包括 _run_react_loop），导致 session 被截断。
+	# 文件已落盘，编辑器稍后会自然发现。
+	return _ok("Created: " + path + " (" + type + ")")
+
+
+## 列出所有 Input Map 动作
+func _tool_get_input_actions(args: Dictionary) -> Dictionary:
+	var actions: Array = InputMap.get_actions()
+	var result: Array = []
+	for action_name in actions:
+		var events: Array = []
+		for ev in InputMap.action_get_events(action_name):
+			var ev_info := _describe_input_event(ev)
+			if not ev_info.is_empty():
+				events.append(ev_info)
+		result.append({"name": action_name, "events": events})
+	return _ok(JSON.stringify(result, "  "))
+
+
+## 将 InputEvent 转为可读的字典
+func _describe_input_event(ev: InputEvent) -> Dictionary:
+	if ev is InputEventKey:
+		var ek := ev as InputEventKey
+		return {"type": "key", "keycode": OS.get_keycode_string(ek.keycode), "physical": OS.get_keycode_string(ek.physical_keycode)}
+	elif ev is InputEventMouseButton:
+		var emb := ev as InputEventMouseButton
+		var btn_names := ["", "left", "right", "middle", "wheel_up", "wheel_down", "wheel_left", "wheel_right", "x1", "x2"]
+		var btn: String = btn_names[emb.button_index] if emb.button_index < btn_names.size() else "button_%d" % emb.button_index
+		return {"type": "mouse", "button": btn, "pressed": emb.pressed}
+	elif ev is InputEventJoypadButton:
+		var ejb := ev as InputEventJoypadButton
+		return {"type": "joypad_button", "button": ejb.button_index, "pressed": ejb.pressed}
+	elif ev is InputEventJoypadMotion:
+		var ejm := ev as InputEventJoypadMotion
+		return {"type": "joypad_axis", "axis": ejm.axis, "value": ejm.axis_value}
+	return {}
+
+
+## 添加新的 Input Map 动作
+func _tool_add_input_action(args: Dictionary) -> Dictionary:
+	var name: String = args.get("name", "")
+	var events: Array = args.get("events", [])
+
+	if name.is_empty():
+		return _err("name is required")
+	if InputMap.has_action(name):
+		return _err("Action already exists: " + name + ". Use a different name.")
+
+	InputMap.add_action(name)
+
+	for ev_desc in events:
+		var ev_type: String = ev_desc.get("type", "")
+		if ev_type == "key":
+			var code: String = ev_desc.get("code", "")
+			if code.is_empty():
+				continue
+			var kc := OS.find_keycode_from_string(code)
+			if kc == KEY_NONE and code != "None":
+				push_warning("Unknown keycode: " + code)
+				continue
+			var ev := InputEventKey.new()
+			ev.keycode = kc
+			InputMap.action_add_event(name, ev)
+		elif ev_type == "mouse":
+			var btn: int = int(ev_desc.get("button", 1))
+			var ev := InputEventMouseButton.new()
+			ev.button_index = btn
+			InputMap.action_add_event(name, ev)
+
+	ProjectSettings.save()
+	var count := InputMap.action_get_events(name).size()
+	return _ok("Added action '%s' with %d event(s). Saved to project.godot." % [name, count])
+
+
+## 手动清理旧备份目录
+func _tool_cleanup_backups(args: Dictionary) -> Dictionary:
+	var bm := _get_backup()
+	var before := bm.list_backups().size()
+	# 强制触发清理（内部会删掉超过 MAX_BACKUP_DIRS 的旧目录）
+	bm._cleanup_old()
+	var after := bm.list_backups().size()
+	return _ok("Backup cleanup: %d → %d directories" % [before, after])
+
+
+## 预览文件最近的备份（最多 3 个），返回时间戳 + 内容预览
+## 让 AI 在 undo_last 之前知道自己要恢复什么
+func _tool_preview_backup(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	if path.is_empty():
+		return _err("path is required")
+	if not path.begins_with("res://"):
+		return _err("path must start with res://")
+
+	var rel := path.trim_prefix("res://")
+	var bm := _get_backup()
+	var backup_dirs := bm.list_backups()
+	if backup_dirs.is_empty():
+		return _ok("(no backups found — backups are created automatically when write tools modify files)")
+
+	# 从最新往旧找，最多返回 3 个匹配的备份
+	var found: Array = []
+	for i in range(backup_dirs.size() - 1, -1, -1):
+		if found.size() >= 3:
+			break
+		var ts: String = backup_dirs[i]
+		var backup_file := "res://.dotagent_backups/" + ts + "/" + rel
+		if not FileAccess.file_exists(backup_file):
+			continue
+		var f := FileAccess.open(backup_file, FileAccess.READ)
+		if f == null:
+			continue
+		var content := f.get_as_text()
+		f.close()
+		var preview := content
+		if preview.length() > 400:
+			preview = preview.substr(0, 400) + "\n... [%d more chars]" % (content.length() - 400)
+		found.append({
+			"timestamp": ts,
+			"size": content.length(),
+			"preview": preview,
+		})
+
+	if found.is_empty():
+		return _ok("No backup found for: " + path + "\n(backups exist for other files — try undo_last if you modified a scene)")
+
+	var lines: Array = []
+	lines.append("%d backup(s) for %s:" % [found.size(), path])
+	for item in found:
+		lines.append("\n--- Backup @ %s (%d bytes) ---" % [item["timestamp"], item["size"]])
+		lines.append(item["preview"])
+	return _ok("\n".join(lines))

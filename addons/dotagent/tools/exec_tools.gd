@@ -29,7 +29,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "call_node_method",
-			"description": "Call a method on a node in the edited scene. args is an array of positional arguments (JSON-parseable).",
+			"description": "Call a method on a node in the edited scene. Safe — only interacts with in-memory nodes, doesn't modify files.",
 			"parameters": {
 				"type": "object",
 				"properties": {
@@ -40,7 +40,7 @@ func get_tool_definitions() -> Array:
 				"required": ["path", "method"],
 			},
 			"method_name": "_tool_call_node_method",
-			"dangerous": true,
+			"dangerous": false,
 		},
 		{
 			"name": "open_scene",
@@ -57,10 +57,10 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "run_current_scene",
-			"description": "Run the current scene (equivalent to F5).",
+			"description": "Run the current scene (equivalent to F5). Safe — paired with stop_running_scene (F8), no side effects.",
 			"parameters": {"type": "object", "properties": {}},
 			"method_name": "_tool_run_current_scene",
-			"dangerous": true,
+			"dangerous": false,
 		},
 		{
 			"name": "stop_running_scene",
@@ -71,7 +71,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "reload_project",
-			"description": "Force the project to reload from disk. Use after major file changes outside the editor.",
+			"description": "⚠️ DANGEROUS: Clears the tool registry (all tools stop working). NEVER call this mid-session — it will kill your ability to use any tools. Only use when explicitly told by the user.",
 			"parameters": {"type": "object", "properties": {}},
 			"method_name": "_tool_reload_project",
 			"dangerous": true,
@@ -94,7 +94,7 @@ func get_tool_definitions() -> Array:
 				},
 			},
 			"method_name": "_tool_run_scene_capture",
-			"dangerous": true,
+			"dangerous": false,
 		},
 		{
 			"name": "get_node_type_info",
@@ -121,6 +121,19 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_read_editor_output",
 			"dangerous": false,
 		},
+		{
+			"name": "open_godot_docs",
+			"description": "Open Godot Engine documentation in the default browser. Pass a class name (e.g. 'CharacterBody2D'), method (e.g. 'move_and_slide'), or free-text query. Opens the matching docs page or search results. Use when you need to look up API details, method signatures, or best practices.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"query": {"type": "string", "description": "Class name, method name, or search term. E.g. 'CharacterBody2D', 'move_and_slide', 'Tween', 'signals'"},
+				},
+				"required": ["query"],
+			},
+			"method_name": "_tool_open_godot_docs",
+			"dangerous": false,
+		},
 	]
 
 
@@ -136,6 +149,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return _tool_run_scene_capture(args)
 		"_tool_read_editor_output": return _tool_read_editor_output(args)
+		"_tool_open_godot_docs": return _tool_open_godot_docs(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -159,37 +173,30 @@ func _tool_execute_gdscript(args: Dictionary) -> Dictionary:
 	var indented := "\n".join(processed)
 
 	# wrapper 提供:
-	# - _result:String — 自动累积所有 print/push_error/push_warning 输出
-	# - _echo(text):同 print 但强制写 _result
+	# - _result:String — 用 _echo() 写入会被捕获返回
+	# - print() / push_error() / push_warning() -> 原生行为（控制台输出，不被捕获）
+	# - _echo(text):追加到 _result（推荐替代 print，不产生递归）
 	# - ei:EditorInterface 引用
-	# print/push_error/push_warning 被局部 shadow，输出自动进入 _result
 	var script_src := """
 extends RefCounted
 var _result: String = ""
 
 func _echo(text) -> void:
 	_result += str(text) + "\n"
-	print(text)
-
-func print(text) -> void:
-	_echo(text)
-
-func push_error(text) -> void:
-	_echo("ERROR: " + str(text))
-
-func push_warning(text) -> void:
-	_echo("WARNING: " + str(text))
 
 func run(ei: EditorInterface) -> String:
 %s
-	return _result if _result != \"\" else \"(no return value)\"
+	return _result if _result != "" else "(no return value)"
 """ % indented
 
+	# GDScript.new() + script.reload() 直接在内存中编译（不依赖文件系统缓存）
 	var script := GDScript.new()
 	script.source_code = script_src
 	var err := script.reload()
 	if err != OK:
-		return _err("Script compile error (line in source: " + _get_compile_error(script) + ")\n--- snippet ---\n" + snippet)
+		# 编译失败时，用子进程捕获详细的错误信息（行号+描述）
+		var detail := _get_compile_error_via_subprocess(script_src)
+		return _err("Script compile error:\n%s\n--- snippet ---\n%s" % [detail, snippet])
 
 	# Bug #2: script.new() can return null if runtime init fails
 	var obj = script.new()
@@ -210,9 +217,14 @@ func _tool_call_node_method(args: Dictionary) -> Dictionary:
 	if root == null:
 		return _err("No scene open")
 	var path: String = args.get("path", "")
-	if not root.has_node(path):
+	# P1-4 fix: 统一根节点路径 — "." / "" / root.name 都指向场景根
+	var node: Node = null
+	if path.is_empty() or path == "." or path == "/" or path == root.name:
+		node = root
+	elif root.has_node(path):
+		node = root.get_node(path)
+	if node == null:
 		return _err("Node not found: " + path)
-	var node: Node = root.get_node(path)
 	var method: String = args.get("method", "")
 	if method.is_empty():
 		return _err("method is required")
@@ -326,10 +338,50 @@ func _tool_get_node_type_info(args: Dictionary) -> Dictionary:
 
 # ============ 辅助 ============
 
-func _get_compile_error(script: GDScript) -> String:
-	# GDScript 编译错误的获取在不同版本 API 不一样
-	# 简化处理
-	return "see Godot output for details"
+func _get_compile_error_via_subprocess(script_src: String) -> String:
+	# GDScript 4.x 无公开 API 获取编译错误文本。
+	# 策略：写到临时文件，用 headless Godot 子进程加载它，捕获 stderr 中的错误信息。
+	var temp_path := "res://addons/dotagent/_snippet_compile_check.gd"
+	var f := FileAccess.open(temp_path, FileAccess.WRITE)
+	if f == null:
+		return "(unable to write temp file for compile check)"
+	f.store_string(script_src)
+	f.close()
+
+	var godot_exe: String = OS.get_executable_path()
+	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
+		DirAccess.remove_absolute(temp_path)
+		return "(godot executable not found)"
+
+	var temp_abs: String = ProjectSettings.globalize_path(temp_path)
+	var output: Array = []
+	OS.execute(godot_exe, ["--headless", "--script", temp_abs], output, true, false)
+	DirAccess.remove_absolute(temp_path)
+
+	# 提取编译错误行（通常以 "ERROR:" 或行号+错误描述形式出现）
+	var full := "\n".join(output)
+	var errors: Array = []
+	for line in full.split("\n"):
+		var s := line.strip_edges()
+		if s.is_empty():
+			continue
+		# Godot 4 的脚本编译错误格式：res://path:行号 - Parse Error: ...
+		# 也匹配 "ERROR:" 前缀的通用错误
+		if s.contains("Parse Error:") or s.contains("SCRIPT ERROR:") \
+				or s.begins_with("ERROR:") \
+				or (s.contains(".gd:") and s.to_lower().contains("error")):
+			errors.append(s)
+
+	if errors.is_empty():
+		# 没抓到具体错误行，返回整个 stderr 的前几行供 AI 自行分析
+		var preview := full.strip_edges()
+		if preview.length() > 800:
+			preview = preview.substr(0, 800) + "\n... (truncated)"
+		if preview.is_empty():
+			return "(compile failed — check snippet syntax manually)"
+		return "Raw output:\n" + preview
+
+	return "\n".join(errors)
 
 
 func _type_name(t: int) -> String:
@@ -395,11 +447,17 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	if preview.length() > 3000:
 		preview = preview.substr(0, 3000) + "\n... (truncated)"
 
+	# P0-3 fix: 检查子进程退出码 — GDScript 编译失败时 exit code 非零
+	if exit_code != 0 and error_lines.is_empty():
+		return _err("Scene '%s' exited with code %d (compile/runtime error). No error lines captured from stdout/stderr.\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, exit_code, preview])
+
 	if error_lines.is_empty():
 		return _ok("✅ Scene '%s' ran for %d frames, no errors detected.\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, preview])
 	else:
-		# Bug #1: errors found → return ok=false so LLM sees it failed
-		return _err("Scene '%s' ran for %d frames, found %d error(s):\n%s\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, error_lines.size(), "\n".join(error_lines), preview])
+		var exit_info := ""
+		if exit_code != 0:
+			exit_info = " (exit code %d)" % exit_code
+		return _err("Scene '%s' ran for %d frames%s, found %d error(s):\n%s\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, exit_info, error_lines.size(), "\n".join(error_lines), preview])
 
 
 # exec_tools 辅助方法已移至 ToolBase 基类
@@ -407,30 +465,29 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 
 func _tool_read_editor_output(args: Dictionary) -> Dictionary:
 	var max_lines: int = int(args.get("max_lines", 50))
-	# Godot editor log 路径因 OS 不同：
-	# Windows: %APPDATA%/Godot/editor_data/editor_log.txt
-	# Linux: ~/.local/share/godot/editor_data/editor_log.txt
-	# macOS: ~/Library/Application Support/Godot/editor_data/editor_log.txt
-	# get_user_data_dir() 返回项目专用路径，需要上溯到 Godot 配置根目录
-	var candidates := [
-		OS.get_user_data_dir().get_base_dir().path_join("editor_data/editor_log.txt"),
-		OS.get_user_data_dir().get_base_dir().get_base_dir().path_join("editor_data/editor_log.txt"),
-	]
-	var log_path := ""
-	for c in candidates:
-		if FileAccess.file_exists(c):
-			log_path = c
-			break
-	if log_path.is_empty():
-		return _err("Cannot find editor_log.txt. Candidates: %s" % str(candidates))
-	var f := FileAccess.open(log_path, FileAccess.READ)
-	if f == null:
-		return _err("Cannot open: " + log_path)
-	var full := f.get_as_text()
-	f.close()
-	var lines := full.split("\n")
-	var start := max(0, lines.size() - max_lines)
-	var tail_lines: Array = []
-	for i in range(start, lines.size()):
-		tail_lines.append(lines[i])
-	return _ok("[last %d lines of %s]\n%s" % [tail_lines.size(), log_path, "\n".join(tail_lines)])
+	return _ok(EditorLogBuffer.get_recent(max_lines))
+
+
+## 在默认浏览器中打开 Godot 文档
+func _tool_open_godot_docs(args: Dictionary) -> Dictionary:
+	var query: String = args.get("query", "")
+	if query.is_empty():
+		return _err("query is required")
+
+	var url: String
+	var version := "stable"  # Godot 4 的文档路径
+
+	# 检查是否是已知的类名——直接跳转到类参考页
+	var lower_q := query.to_lower().replace(" ", "_")
+	if ClassDB.class_exists(query):
+		url = "https://docs.godotengine.org/en/%s/classes/class_%s.html" % [version, lower_q]
+	else:
+		# 搜索页
+		var encoded := query.uri_encode()
+		url = "https://docs.godotengine.org/en/%s/search.html?q=%s" % [version, encoded]
+
+	var err := OS.shell_open(url)
+	if err != OK:
+		return _err("Failed to open browser: " + error_string(err))
+
+	return _ok("Opened docs for '%s': %s" % [query, url])

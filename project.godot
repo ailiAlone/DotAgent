@@ -12,6 +12,7 @@ config_version=5
 
 config/name="DotAgent"
 config/description="\"DotAgent — Godot Editor AI Assistant with tool-calling capabilities\""
+config/version="\"1.0.0-test\""
 run/main_scene="res://main_menu.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"

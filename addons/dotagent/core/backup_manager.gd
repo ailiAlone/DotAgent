@@ -9,7 +9,12 @@ extends RefCounted
 ## - 备份不进 git(写到 .gitignore)
 
 const BACKUP_ROOT := "res://.dotagent_backups"
-const MAX_BACKUP_DIRS := 50
+const MAX_BACKUP_DIRS := 10
+
+
+func _init() -> void:
+	# 构造时自动清理旧备份，减少 Language Server 扫描噪音
+	_cleanup_old()
 
 
 ## 备份一个文件,返回备份后的路径(失败返回空字符串)

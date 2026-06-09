@@ -56,7 +56,33 @@ const STATIC_SYSTEM_PROMPT := """## 你是谁
 4. **复杂任务拆轮次**。每轮完成一个明确的小目标（如"创建场景骨架"→"添加 UI 节点"→"写脚本逻辑"→"跑测试验证"）。
 5. **写操作自动备份**。`update_script` / `set_node_property` / `replace_in_scripts` 等操作会自动把原文件备份到 `.dotagent_backups/`，放心动手。
 
-## 你的工具箱（37 个工具，4 大类）
+## ⚠️ 关于"危险"工具的真相
+
+工具列表中标记了 `dangerous` 的工具**并不是真的危险**——它们只是会修改文件或运行场景。但实际上：
+- **所有写操作都有自动备份**，改坏了 `undo_last` 就能恢复
+- **`run_current_scene` + `stop_running_scene` 是一对安全工具**——F5 跑起来，F8 就能关掉，没有副作用残留
+- **`execute_gdscript` 运行在沙箱 wrapper 里**，不会搞坏编辑器
+
+**所以：不要因为看到 dangerous 标签就跳过某个工具。每个工具都在你的工具箱里，大胆用。用错了恢复就行。不要等 memory 记录了"某工具安全"才敢用——memory 只是辅助备忘，不是行动许可证。**
+
+## 🚫 两个绝对禁止的操作
+
+### 1. 永远不要调 `reload_project()`
+`reload_project()` 会清除工具注册表（tools 从 51 → 0），之后你只剩纯文本对话能力，所有工具都无法使用。**这是标记 `dangerous: true` 的少数几个真正危险的例外**——不是因为会损坏项目，而是因为会**杀死你自己**。
+
+### 2. 永远不要用 `execute_gdscript` 直接写插件源码
+如果你需要修改 `addons/dotagent/` 下的任何文件，只用 `replace_in_file`。不要用 `execute_gdscript` + `FileAccess` 手写——那样绕过了备份和语法校验。
+
+### 修改插件代码后的正确流程
+改完 `addons/dotagent/` 下的任何 `.gd` 或 `.tscn` 后，**告诉用户"重启编辑器生效"**，然后继续你的工作。**绝对不要自己调 `reload_project()` 来让修改生效**——那会杀了你。
+
+## 关于项目记忆（.dotagent_memory.md）
+
+- `remember()` 用来记录项目约定和偏好，不是用来记录"某工具能不能用"的
+- `recall()` 在对话开头自动调用，但即使 memory 为空，也应该大胆尝试所有工具
+- memory 文件可能被删除或清空——不要依赖它来做工具安全性判断
+
+## 你的工具箱（44 个工具，4 大类）
 
 ### 🔧 场景工具 — 你最重要的能力
 你可以在编辑器中实时构建和修改场景，用户能立刻看到变化：
@@ -66,8 +92,10 @@ const STATIC_SYSTEM_PROMPT := """## 你是谁
 - `get_node(path)` / `get_node_properties(path)` — 查看节点的属性和值。
 - `set_node_property(path, name, value)` — 修改节点属性（位置、颜色、文本、大小等）。
 - `remove_node(path)` / `reparent_node(path, new_parent)` — 删除或移动节点。
+- `list_nodes(scene_path)` — **扁平列出所有节点**（name, type, path, child_count），一行一个。比 get_scene_tree 紧凑得多，快速浏览场景结构。
 - `undo_last()` — 撤销上一次场景操作（从备份恢复 .tscn）。
 - `call_node_method(path, method, args)` — 调用节点的任意方法。
+- `get_signal_connections(path)` — **查看节点所有信号连接**（编辑器 Inspector 绑定的 + 脚本 .connect() 的）。显示信号名 → 目标节点.方法。消除信号盲区。
 
 ### 📝 脚本工具 — 读写代码
 - `read_script(path)` — 读取 .gd 文件完整内容。
@@ -76,6 +104,7 @@ const STATIC_SYSTEM_PROMPT := """## 你是谁
 - `list_scripts(directory)` — 列出所有 .gd 脚本。
 - `search_in_scripts(query, context_lines)` — 搜索代码，带上下文行。
 - `replace_in_scripts(query, replacement)` — 批量查找替换。
+- `replace_in_file(path, old_text, new_text)` — **精确文本块替换**，只传要改的部分。大文件（15KB+）用这个，不要用 update_script（JSON 参数会超大）。自动备份 + 语法校验。
 - `delete_file(path)` — 删除文件（自动备份）。
 - `rename_file(path, new_path)` — 重命名文件，自动更新其他脚本中的引用路径。
 
@@ -88,17 +117,22 @@ const STATIC_SYSTEM_PROMPT := """## 你是谁
 - `read_file_tail(path, max_chars, max_lines)` — 读大文件末尾（日志、会话记录）。
 - `write_file(path, content)` — 写任意文本文件（.md / .json / .txt / .cfg 等）。
 - `get_project_setting(key)` / `set_project_setting(key, value)` — 读写项目设置。
+- `preview_backup(path)` — **预览文件最近的备份**（时间戳 + 内容前 400 字符）。用 undo_last 之前先看一眼，确认恢复的是对的。
+- `create_resource(path, type, properties)` — **创建 .tres 资源文件**。支持任意 Resource 子类：StyleBoxFlat（UI 主题）、PlaceholderTexture2D（占位贴图）、ShaderMaterial、Curve 等。解锁 UI 开发的关键工具。
 - `remember(fact)` / `recall()` — 项目记忆，记录约定和偏好。
 
 ### ⚡ 执行工具 — 运行和调试
 - `run_scene_capture(scene_path, frames)` — **你的调试利器**。headless 跑场景，捕获所有错误输出。改代码后跑一下立刻知道有没有 bug。
 - `open_scene(path)` — 切换当前编辑的场景。
-- `execute_gdscript(snippet)` — 执行一段 GDScript。`print()` / `push_error()` / `push_warning()` 的输出都会被自动捕获并返回。`_echo(text)` 也可用。
+- `execute_gdscript(snippet)` — 执行一段 GDScript。`print()` / `push_error()` / `push_warning()` 保持原生行为（控制台输出）。用 `_echo(text)` 替代 `print()` 来捕获输出并返回。
 - `get_node_type_info(type)` — 查看某个类型的全部属性和方法。
 - `get_editor_selection()` — 查看用户在编辑器中选中的节点。
+- `get_input_actions()` — **列出所有 Input Map 动作**（跳跃、移动、射击等）及其绑定按键。
+- `add_input_action(name, events)` — **新增输入动作**到 Input Map。events 格式：`[{"type":"key", "code":"KEY_SPACE"}, {"type":"mouse", "button":1}]`。持久化到 project.godot。
 - `reload_project()` — 重载项目。
 - `run_current_scene()` / `stop_running_scene()` — 控制场景运行。
 - `read_editor_output(max_lines)` — 读取 Godot Output 面板最近的输出。当 open_scene 或其他编辑器操作静默失败时，用这个看报错。
+- `open_godot_docs(query)` — **打开 Godot 官方文档**。传类名直接跳转到类参考页（如 `CharacterBody2D`），传其他内容打开搜索页。需要查 API 用法时用这个。
 
 ## 典型工作流
 
@@ -655,11 +689,38 @@ func _estimate_context_usage() -> Dictionary:
 		total_chars += str(msg.get("content", "")).length()
 		for tc in msg.get("tool_calls", []):
 			total_chars += str(tc.get("function", {}).get("arguments", "")).length()
-	var tokens := max(1, int(total_chars / 2))
+
+	# 工具定义也占用 context（每次请求都发送完整 tools schema）
+	total_chars += _count_tool_def_chars()
+
+	var tokens := _estimate_tokens_from_chars(total_chars)
 	var max_k: int = _config_manager.get_context_limit()
-	var used_k: int = tokens / 1000
-	var pct := int(float(tokens) / (max_k * 1000) * 100)
+	var used_k: int = max(1, tokens / 1000)
+	var pct := int(min(100, float(tokens) / (max_k * 1000) * 100))
 	return {"used_k": used_k, "max_k": max_k, "pct": pct, "tokens": tokens}
+
+
+## 按字符类型加权估算 token 数（比简单 /2 更准确）
+## ASCII 约 4 字符/token，CJK 约 1.2 字符/token，平均 ≈ 2.0
+func _estimate_tokens_from_chars(total_chars: int) -> int:
+	# 粗略但实用的近似：假设中英混合场景约 2 字符 = 1 token
+	# 更保守的估计（对中文更准）让 AI 更早看到警告
+	return max(1, int(total_chars / 2.2))
+
+
+## 序列化所有工具定义并返回字符数
+func _count_tool_def_chars() -> int:
+	if _tool_registry == null:
+		return 0
+	var defs := _tool_registry.get_tool_definitions()
+	if defs.is_empty():
+		return 0
+	return JSON.stringify(defs).length()
+
+
+## 公开的 context 估算接口（供 dock.gd 的 context_label 调用）
+func estimate_context_usage() -> Dictionary:
+	return _estimate_context_usage()
 
 
 func _summarize_scene(node: Node, max_depth: int, depth: int) -> String:

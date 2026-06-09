@@ -22,6 +22,9 @@ var _config_dialog: Window = null
 
 
 func _enter_tree() -> void:
+	# 启动编辑器日志拦截（捕获 Output 面板的所有消息供 AI 读取）
+	EditorLogBuffer.start()
+
 	# 运行时 load(每次 enable 插件都重新读 .tscn)
 	_dock_scene = load("res://addons/dotagent/ui/dock.tscn")
 	_config_dialog_scene = load("res://addons/dotagent/ui/config_dialog.tscn")
@@ -39,6 +42,7 @@ func _enter_tree() -> void:
 
 
 func _exit_tree() -> void:
+	EditorLogBuffer.stop()
 	if _dock != null and is_instance_valid(_dock):
 		remove_control_from_docks(_dock)
 		_dock.queue_free()
