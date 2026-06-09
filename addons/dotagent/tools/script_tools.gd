@@ -1,4 +1,4 @@
-﻿@tool
+@tool
 extends "res://addons/dotagent/core/tool_base.gd"
 ## 脚本工具 — ##
 ## 工具:
@@ -410,19 +410,19 @@ func _tool_check_script_syntax(args: Dictionary) -> Dictionary:
 
 
 
-## 安全校验 GDScript 语法：用 GDScript.new().reload() 强制重新编译
-## 返回空字符串 = 无错误，否则返回错误描述
+## Validate GDScript syntax by compiling a fresh GDScript instance.
+## Uses resource_path + reload() to force recompilation, bypassing resource cache.
+## Returns "" if OK, otherwise the error description.
 func _validate_gdscript(path: String) -> String:
 	if not FileAccess.file_exists(path):
 		return "File not found"
+	# 读取文件内容到内存，用 source_code 编译（而非设 resource_path 走缓存）
+	# resource_path + reload() 会从 Godot 资源缓存加载已编译版本，检测不到新写入的语法错误
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return "Cannot read file"
 	var source := f.get_as_text()
 	f.close()
-
-	# 用 GDScript.new() + reload() 强制从源码重新编译，绕过 Godot 资源缓存
-	# load() 可能返回旧缓存版本，不会触发重新编译
 	var script := GDScript.new()
 	script.source_code = source
 	var err := script.reload()
