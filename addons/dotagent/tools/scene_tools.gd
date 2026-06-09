@@ -1,8 +1,7 @@
-@tool
+﻿@tool
 extends "res://addons/dotagent/core/tool_base.gd"
-## 场景/节点工具集
-##
-## 工具:
+## 鍦烘櫙/鑺傜偣宸ュ叿闆?##
+## 宸ュ叿:
 ## - create_scene
 ## - get_scene_tree
 ## - get_node
@@ -21,7 +20,7 @@ func get_tool_definitions() -> Array:
 	return [
 		{
 			"name": "create_scene",
-			"description": "Create a NEW scene file (.tscn) and open it in the editor immediately. Use this BEFORE add_node to create an empty scene with a root node. NEVER use execute_gdscript + FileAccess to write .tscn by hand — it's slow and the editor won't show changes in real-time. After create_scene succeeds, use add_node to build the scene node by node.",
+			"description": "Create a NEW scene file (.tscn) and open it in the editor immediately. Use this BEFORE add_node to create an empty scene with a root node. NEVER use execute_gdscript + FileAccess to write .tscn by hand 鈥?it's slow and the editor won't show changes in real-time. After create_scene succeeds, use add_node to build the scene node by node.",
 			"parameters": {
 				"type": "object",
 				"properties": {
@@ -133,14 +132,14 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "undo_last",
-			"description": "Undo the last scene operation by restoring the most recent backup. Safe — this tool REVERSES damage, not causes it.",
+			"description": "Undo the last scene operation by restoring the most recent backup. Safe 鈥?this tool REVERSES damage, not causes it.",
 			"parameters": {"type": "object", "properties": {}},
 			"method_name": "_tool_undo_last",
 			"dangerous": false,
 		},
 		{
 			"name": "list_nodes",
-			"description": "Get a flat list of all nodes in the scene with name, type, path, and child count. Much shorter than get_scene_tree — one line per node. Use for quick overview of scene structure.",
+			"description": "Get a flat list of all nodes in the scene with name, type, path, and child count. Much shorter than get_scene_tree 鈥?one line per node. Use for quick overview of scene structure.",
 			"parameters": {
 				"type": "object",
 				"properties": {
@@ -152,7 +151,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "get_signal_connections",
-			"description": "List all signal connections on a node — both editor-connected (Inspector → Node tab) and script-connected (.connect()). Shows signal name, target node path, and target method. Use to understand what happens when a signal fires.",
+			"description": "List all signal connections on a node 鈥?both editor-connected (Inspector 鈫?Node tab) and script-connected (.connect()). Shows signal name, target node path, and target method. Use to understand what happens when a signal fires.",
 			"parameters": {
 				"type": "object",
 				"properties": {
@@ -182,7 +181,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
-# ============ 工具实现 ============
+# ============ 宸ュ叿瀹炵幇 ============
 
 func _tool_create_scene(args: Dictionary) -> Dictionary:
 	var path: String = args.get("path", "")
@@ -197,27 +196,24 @@ func _tool_create_scene(args: Dictionary) -> Dictionary:
 	if not ClassDB.class_exists(root_type):
 		return _err("Unknown class: " + root_type)
 
-	# 确保目录存在
+	# 纭繚鐩綍瀛樺湪
 	_ensure_dir(path)
 
-	# 创建根节点
-	var root: Node = ClassDB.instantiate(root_type)
+	# 鍒涘缓鏍硅妭鐐?	var root: Node = ClassDB.instantiate(root_type)
 	var scene_name := path.get_file().get_basename()
 	root.name = scene_name
 
-	# 打包成 PackedScene
+	# 鎵撳寘鎴?PackedScene
 	var packed := PackedScene.new()
 	var err := packed.pack(root)
 	if err != OK:
 		return _err("Failed to pack scene (err=%d). Try a different root_type." % err)
 
-	# 保存到磁盘
-	err = ResourceSaver.save(packed, path)
+	# 淇濆瓨鍒扮鐩?	err = ResourceSaver.save(packed, path)
 	if err != OK:
 		return _err("Failed to save: " + error_string(err))
 
-	# 立即在编辑器中打开 — 用户实时看到新场景
-	_refresh_filesystem()
+	# 绔嬪嵆鍦ㄧ紪杈戝櫒涓墦寮€ 鈥?鐢ㄦ埛瀹炴椂鐪嬪埌鏂板満鏅?	_refresh_filesystem()
 	var ei = _ei()
 	if ei:
 		ei.open_scene_from_path(path)
@@ -234,7 +230,7 @@ func _tool_get_scene_tree(args: Dictionary) -> Dictionary:
 	var scene_path: String = args.get("scene_path", "")
 	var root: Node = null
 	if not scene_path.is_empty():
-		# 从文件加载场景（只读，不切换编辑器状态）
+		# 浠庢枃浠跺姞杞藉満鏅紙鍙锛屼笉鍒囨崲缂栬緫鍣ㄧ姸鎬侊級
 		if not FileAccess.file_exists(scene_path):
 			return _err("Scene not found: " + scene_path)
 		var packed := load(scene_path) as PackedScene
@@ -251,8 +247,7 @@ func _tool_get_scene_tree(args: Dictionary) -> Dictionary:
 	var depth: int = int(args.get("max_depth", 3))
 	depth = clamp(depth, 1, 10)
 	var tree := _serialize_node(root, depth, 0)
-	# 如果是临时加载的，释放
-	if not scene_path.is_empty() and is_instance_valid(root):
+	# 濡傛灉鏄复鏃跺姞杞界殑锛岄噴鏀?	if not scene_path.is_empty() and is_instance_valid(root):
 		root.queue_free()
 	return _ok(JSON.stringify(tree, "  "))
 
@@ -273,7 +268,7 @@ func _tool_get_node_properties(args: Dictionary) -> Dictionary:
 		if not (prop.usage & PROPERTY_USAGE_STORAGE):
 			continue
 		var pname: String = prop.name
-		# 过滤掉 AI 几乎不关心的"噪音"属性,避免返回超长列表
+		# 杩囨护鎺?AI 鍑犱箮涓嶅叧蹇冪殑"鍣煶"灞炴€?閬垮厤杩斿洖瓒呴暱鍒楄〃
 		if not _is_important_prop(pname):
 			continue
 		var val = node.get(pname)
@@ -284,35 +279,32 @@ func _tool_get_node_properties(args: Dictionary) -> Dictionary:
 	return _ok(JSON.stringify(props, "  "))
 
 
-## 过滤 _tool_get_node_properties 的输出:只保留 AI 真正关心的属性
-## 之前返回所有 storage 属性,动辄 100+ 行,AI 看着头大
+## 杩囨护 _tool_get_node_properties 鐨勮緭鍑?鍙繚鐣?AI 鐪熸鍏冲績鐨勫睘鎬?## 涔嬪墠杩斿洖鎵€鏈?storage 灞炴€?鍔ㄨ緞 100+ 琛?AI 鐪嬬潃澶村ぇ
 func _is_important_prop(pname: String) -> bool:
-	# 内部 / 隐藏
+	# 鍐呴儴 / 闅愯棌
 	if pname.begins_with("_"):
 		return false
-	# process / physics 调度
+	# process / physics 璋冨害
 	if pname in ["process_mode", "process_priority", "process_physics_priority", "process_thread_group",
 				 "physics_interpolation_mode"]:
 		return false
-	# 国际化 / 翻译
+	# 鍥介檯鍖?/ 缈昏瘧
 	if pname in ["auto_translate_mode", "localize_numeral_system"]:
 		return false
-	# 渲染层 / mask
+	# 娓叉煋灞?/ mask
 	if pname in ["visibility_layer", "light_mask", "visibility_behavior_recursive"]:
 		return false
-	# mouse / focus / accessibility — 用户几乎不通过 AI 改
-	if pname.begins_with("mouse_") or pname.begins_with("focus_") or pname.begins_with("accessibility_"):
+	# mouse / focus / accessibility 鈥?鐢ㄦ埛鍑犱箮涓嶉€氳繃 AI 鏀?	if pname.begins_with("mouse_") or pname.begins_with("focus_") or pname.begins_with("accessibility_"):
 		return false
-	# 渲染细节
+	# 娓叉煋缁嗚妭
 	if pname in ["top_level", "clip_children", "clip_contents",
 				 "show_behind_parent", "y_sort_enabled", "use_parent_material",
 				 "texture_filter", "texture_repeat", "material",
 				 "editor_description"]:
 		return false
-	# tooltip / shortcut — 偶尔关心,但默认跳过
-	if pname.begins_with("shortcut_") or pname == "tooltip_auto_translate_mode":
+	# tooltip / shortcut 鈥?鍋跺皵鍏冲績,浣嗛粯璁よ烦杩?	if pname.begins_with("shortcut_") or pname == "tooltip_auto_translate_mode":
 		return false
-	# 默认:保留
+	# 榛樿:淇濈暀
 	return true
 
 
@@ -358,18 +350,16 @@ func _tool_add_node(args: Dictionary) -> Dictionary:
 		return _err("Failed to instantiate: " + type_name)
 	node.name = node_name
 
-	# unique_name_in_owner(必须在 add_child 之前或之后马上设)
+	# unique_name_in_owner(蹇呴』鍦?add_child 涔嬪墠鎴栦箣鍚庨┈涓婅)
 	if bool(args.get("unique_name", false)):
 		node.unique_name_in_owner = true
 
-	# 设置属性
-	var properties: Dictionary = args.get("properties", {})
+	# 璁剧疆灞炴€?	var properties: Dictionary = args.get("properties", {})
 	for k in properties.keys():
 		node.set(k, properties[k])
 
 	parent.add_child(node)
-	node.owner = root  # 确保保存进场景
-
+	node.owner = root  # 纭繚淇濆瓨杩涘満鏅?
 	_emit_change()
 	return _ok("Added %s '%s' under '%s'%s. New path: %s" % [type_name, node_name, parent.name, " (unique_name)" if node.unique_name_in_owner else "", root.get_path_to(node)])
 
@@ -409,7 +399,7 @@ func _tool_undo_last(args: Dictionary) -> Dictionary:
 	var backups := _backup.list_backups()
 	if backups.is_empty():
 		return _err("No backups found")
-	# 取最新的备份
+	# 鍙栨渶鏂扮殑澶囦唤
 	var latest: String = backups[backups.size() - 1]
 	var backup_file: String = "res://.dotagent_backups/" + latest + "/" + scene_path.trim_prefix("res://")
 	if not FileAccess.file_exists(backup_file):
@@ -430,8 +420,7 @@ func _tool_undo_last(args: Dictionary) -> Dictionary:
 	return _ok("Restored scene from backup: " + latest)
 
 
-## 扁平列出场景所有节点（name, type, path, child_count），每节点一行
-func _tool_list_nodes(args: Dictionary) -> Dictionary:
+## 鎵佸钩鍒楀嚭鍦烘櫙鎵€鏈夎妭鐐癸紙name, type, path, child_count锛夛紝姣忚妭鐐逛竴琛?func _tool_list_nodes(args: Dictionary) -> Dictionary:
 	var ei = _ei()
 	if ei == null:
 		return _err("EditorInterface unavailable")
@@ -476,13 +465,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 		_list_nodes_flat(child, out)
 
 
-## 列出节点的所有信号连接（编辑器 + 脚本）
-	## 扫描 3 个来源：
-	##   1. 脚本 .connect() 连接（静态分析场景中所有脚本的 .connect 调用）
-	##   2. Inspector Node 标签页连接（.tscn 的 [connection] 段）
-	##   3. get_signal_connection_list（编辑器内部连接，如 SceneTreeEditor）
-	##   4. 传入连接（get_incoming_connections — 其他节点连到本节点的方法）
-	func _tool_get_signal_connections(args: Dictionary) -> Dictionary:
+## 鍒楀嚭鑺傜偣鐨勬墍鏈変俊鍙疯繛鎺ワ紙缂栬緫鍣?+ 鑴氭湰锛?connect() / .tscn / incoming锛?func _tool_get_signal_connections(args: Dictionary) -> Dictionary:
 		var node := _resolve_node(args.get("path", ""))
 		if node == null:
 			return _err("Node not found")
@@ -491,17 +474,17 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 		var root = ei.get_edited_scene_root() if ei else null
 		var result: Array = []
 
-		# ---- 1. 脚本 .connect() 静态分析 ----
-		# 扫描场景中所有脚本，找 node_path.signal_name.connect(method) 模式
+		# ---- 1. 鑴氭湰 .connect() 闈欐€佸垎鏋?----
+		# 鎵弿鍦烘櫙涓墍鏈夎剼鏈紝鎵?node_path.signal_name.connect(method) 妯″紡
 		if root:
 			var node_rel_path := str(root.get_path_to(node))
 			var node_name := node.name
 			var scripts_to_scan: Array = []
-			# 收集场景中所有节点的脚本
+			# 鏀堕泦鍦烘櫙涓墍鏈夎妭鐐圭殑鑴氭湰
 			scripts_to_scan.append({"path": root.scene_file_path, "type": "tscn"})
 			_collect_scripts(root, scripts_to_scan)
 
-			var seen_pairs := {}  # 去重: "signal->method"
+			var seen_pairs := {}  # 鍘婚噸: "signal->method"
 			for entry in scripts_to_scan:
 				if entry.type == "gd":
 					var f_script := FileAccess.open(entry.path, FileAccess.READ)
@@ -515,32 +498,30 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 						var line := script_lines[line_idx].strip_edges()
 						if line.begins_with("#") or line.begins_with("//"):
 							continue
-						# 匹配: %NodeName.signal_name.connect(method) 或 NodeName.signal_name.connect(method)
-						# 也匹配: node_var.signal_name.connect(Callable(self, "method"))
+						# 鍖归厤: %NodeName.signal_name.connect(method) 鎴?NodeName.signal_name.connect(method)
+						# 涔熷尮閰? node_var.signal_name.connect(Callable(self, "method"))
 						if not ".connect(" in line:
 							continue
-						# 检查是否指向目标节点: %Name, Name, 或 onready 变量引用
+						# 妫€鏌ユ槸鍚︽寚鍚戠洰鏍囪妭鐐? %Name, Name, 鎴?onready 鍙橀噺寮曠敤
 						var points_to_node := false
 						if ("%" + node_name) in line or node_name in line:
 							points_to_node = true
-						# 也检查: node_rel_path 中的节点名片段
-						if node_rel_path in line:
+						# 涔熸鏌? node_rel_path 涓殑鑺傜偣鍚嶇墖娈?						if node_rel_path in line:
 							points_to_node = true
 						if not points_to_node:
 							continue
-						# 提取信号名和方法名
-						var dot_idx := line.find(".connect(")
+						# 鎻愬彇淇″彿鍚嶅拰鏂规硶鍚?						var dot_idx := line.find(".connect(")
 						if dot_idx < 0:
 							continue
 						var before_dot := line.substr(0, dot_idx).strip_edges()
-						# 信号名在 . 之前的部分末尾: "btn.pressed" → "pressed"
+						# 淇″彿鍚嶅湪 . 涔嬪墠鐨勯儴鍒嗘湯灏? "btn.pressed" 鈫?"pressed"
 						var space_idx := before_dot.rfind(" ")
 						var sig_candidate := before_dot.substr(space_idx + 1).strip_edges()
-						# 信号名也可能在 . 之前: %StartButton.pressed
+						# 淇″彿鍚嶄篃鍙兘鍦?. 涔嬪墠: %StartButton.pressed
 						var last_dot := before_dot.rfind(".")
 						if last_dot >= 0:
 							sig_candidate = before_dot.substr(last_dot + 1).strip_edges()
-						# 提取方法名: .connect(_on_start_pressed) 或 .connect(Callable(self, "method"))
+						# 鎻愬彇鏂规硶鍚? .connect(_on_start_pressed) 鎴?.connect(Callable(self, "method"))
 						var paren_start := line.find("(", dot_idx)
 						var paren_end := _find_matching_paren(line, paren_start)
 						if paren_end < 0:
@@ -553,7 +534,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 							if parts.size() >= 2:
 								method_name = parts[1].strip_edges().strip_edges('"').strip_edges("'")
 						else:
-							# 直接方法名 .connect(method_name)
+							# 鐩存帴鏂规硶鍚?.connect(method_name)
 							method_name = args_str.strip_edges().strip_edges('"').strip_edges("'")
 
 						if method_name.is_empty():
@@ -568,7 +549,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 							"source": "script (" + entry.path.get_file() + ":" + str(line_idx + 1) + ")",
 						})
 
-		# ---- 2. Inspector 连接（从 .tscn 的 [connection] 段解析） ----
+		# ---- 2. Inspector 杩炴帴锛堜粠 .tscn 鐨?[connection] 娈佃В鏋愶級 ----
 		if root and not root.scene_file_path.is_empty():
 			var node_rel_path := str(root.get_path_to(node))
 			var f_tscn := FileAccess.open(root.scene_file_path, FileAccess.READ)
@@ -593,7 +574,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 							"source": "editor (inspector)",
 						})
 
-		# ---- 3. 运行时连接（get_signal_connection_list）----
+		# ---- 3. 杩愯鏃惰繛鎺ワ紙get_signal_connection_list锛?---
 		for sig in node.get_signal_list():
 			var sig_name: String = sig["name"]
 			var conns := node.get_signal_connection_list(sig_name)
@@ -603,8 +584,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 					continue
 				var target_info := _describe_callable(target_obj)
 				var pair_key := sig_name + "->" + target_info.get("method", "?")
-				# 去重：避免和静态分析重复
-				var already_seen := false
+				# 鍘婚噸锛氶伩鍏嶅拰闈欐€佸垎鏋愰噸澶?				var already_seen := false
 				for r in result:
 					if r.get("signal") == sig_name and r.get("target", {}).get("method") == target_info.get("method", "?"):
 						already_seen = true
@@ -616,7 +596,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 						"source": "runtime",
 					})
 
-		# ---- 4. 传入连接 ----
+		# ---- 4. 浼犲叆杩炴帴 ----
 		for inc in node.get_incoming_connections():
 			var src_signal: String = inc.get("signal_name", "?")
 			var target_callable = inc.get("callable", null)
@@ -637,16 +617,15 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 			var sig: String = r.get("signal", "?")
 			var tgt: Dictionary = r.get("target", {})
 			if r.get("direction") == "incoming":
-				lines.append("  ← %s.%s  [incoming]" % [tgt.get("node", "?"), tgt.get("method", "?")])
+				lines.append("  鈫?%s.%s  [incoming]" % [tgt.get("node", "?"), tgt.get("method", "?")])
 			else:
 				var src := r.get("source", "?")
-				lines.append("  %s → %s.%s  [%s]" % [sig, tgt.get("node", "?"), tgt.get("method", "?"), src])
+				lines.append("  %s 鈫?%s.%s  [%s]" % [sig, tgt.get("node", "?"), tgt.get("method", "?"), src])
 		return _ok("
 ".join(lines))
 
 
-	## 找匹配的右括号
-	func _find_matching_paren(line: String, open_idx: int) -> int:
+	## 鎵惧尮閰嶇殑鍙虫嫭鍙?	func _find_matching_paren(line: String, open_idx: int) -> int:
 		var depth := 0
 		for i in range(open_idx, line.length()):
 			var ch := line[i]
@@ -659,8 +638,7 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 		return -1
 
 
-	## 从 [connection signal="x" from="y" to="z" method="w"] 中提取属性值
-	func _extract_tscn_attr(line: String, attr: String) -> String:
+	## 浠?[connection signal="x" from="y" to="z" method="w"] 涓彁鍙栧睘鎬у€?	func _extract_tscn_attr(line: String, attr: String) -> String:
 		var search := attr + '="'
 		var start := line.find(search)
 		if start < 0:
@@ -672,12 +650,12 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 		return line.substr(start, end - start)
 
 
-	## 递归收集节点上的脚本路径
+	## 閫掑綊鏀堕泦鑺傜偣涓婄殑鑴氭湰璺緞
 	func _collect_scripts(node: Node, out: Array) -> void:
 		var script = node.get_script()
 		if script != null and not script.resource_path.is_empty():
 			var path = script.resource_path
-			# 去重
+			# 鍘婚噸
 			var already := false
 			for entry in out:
 				if entry.path == path:
@@ -689,16 +667,15 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 			_collect_scripts(child, out)
 
 
-	## 将 Callable 描述为可读信息
-	func _describe_callable(c: Variant) -> Dictionary:
+	## 灏?Callable 鎻忚堪涓哄彲璇讳俊鎭?	func _describe_callable(c: Variant) -> Dictionary:
 		if c == null:
 			return {"node": "?", "method": "?"}
 		var s := str(c)
-		# Godot 4 Callable 的字符串格式: "NodeName::method_name"
+		# Godot 4 Callable 鐨勫瓧绗︿覆鏍煎紡: "NodeName::method_name"
 		if s.contains("::"):
 			var parts := s.split("::")
 			return {"node": parts[0].trim_prefix("<").trim_suffix(">"), "method": parts[1]}
-		return {"node": "?", "method": s}# ============ 辅助 ============
+		return {"node": "?", "method": s}# ============ 杈呭姪 ============
 
 func _resolve_node(path: String) -> Node:
 	var ei = _ei()
@@ -707,10 +684,10 @@ func _resolve_node(path: String) -> Node:
 	var root = ei.get_edited_scene_root()
 	if root == null:
 		return null
-	# 根节点自身的几种写法
+	# 鏍硅妭鐐硅嚜韬殑鍑犵鍐欐硶
 	if path.is_empty() or path == "." or path == "/":
 		return root
-	# AI 经常用根节点名(比如 "MainMenu")访问,has_node 不认 self
+	# AI 缁忓父鐢ㄦ牴鑺傜偣鍚?姣斿 "MainMenu")璁块棶,has_node 涓嶈 self
 	if path == root.name:
 		return root
 	if not root.has_node(path):
@@ -751,10 +728,9 @@ func _emit_change() -> void:
 	if root.scene_file_path.is_empty():
 		_log_act("log_warning", "Scene has no file path (new scene). Save it manually first.")
 		return
-	# 保存前先备份磁盘上的旧版本，这样 undo_last 能找到备份
-	_get_backup().backup(root.scene_file_path)
+	# 淇濆瓨鍓嶅厛澶囦唤纾佺洏涓婄殑鏃х増鏈紝杩欐牱 undo_last 鑳芥壘鍒板浠?	_get_backup().backup(root.scene_file_path)
 	ei.call_deferred("save_scene")
-	_log_act("log_info", "✅ Auto-saved: " + root.scene_file_path)
+	_log_act("log_info", "鉁?Auto-saved: " + root.scene_file_path)
 	_logger.append("SCENE", "Auto-saved: " + root.scene_file_path)
 
 

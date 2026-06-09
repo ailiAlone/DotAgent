@@ -488,15 +488,23 @@ func _register_tools() -> void:
 		"res://addons/dotagent/tools/project_tools.gd",
 		"res://addons/dotagent/tools/exec_tools.gd",
 	]:
-		var script := load(path)
-		if script == null:
+		var res = load(path)
+		if res == null:
 			push_warning("Failed to load tool module: %s" % path)
 			continue
-		if not script.has_method("new"):
+		if not res.has_method("new"):
 			push_warning("Loaded module is not instantiable (parse error?): %s" % path)
 			continue
-		var mod: Object = script.new()
+		var mod = _call_new(res)
+		if mod == null:
+			push_warning("Failed to instantiate tool module: %s" % path)
+			continue
 		_tool_registry.register_module(mod)
+
+
+## 调用 res.new() 的包装函数 — 无类型标注彻底绕过 Godot 4.5 的静态分析
+func _call_new(res) -> Object:
+	return res.new()
 
 
 # ============ Session 持久化 ============
