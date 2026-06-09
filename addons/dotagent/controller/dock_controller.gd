@@ -405,38 +405,9 @@ func _run_react_loop() -> void:
 				"content": _stream_content if _stream_content != "" else null,
 				"tool_calls": _pending_tool_calls.duplicate(true),
 			})
-			# 执行每个工具
-			for tc in _pending_tool_calls:
-				if _abort_requested:
-					break
-				var tc_id: String = tc.get("id", "")
-				var fn: Dictionary = tc.get("function", {})
-				var tc_name: String = fn.get("name", "")
-				var tc_args_raw: String = fn.get("arguments", "{}")
-				tool_started.emit(tc_name)
-				var result: Dictionary = await _tool_registry.execute_tool(tc_name, tc_args_raw)
-				var ok: bool = result.get("ok", true)
-				tool_finished.emit(tc_name, ok)
-				_round_tool_results.append({
-					"name": tc_name,
-					"ok": ok,
-				})
-				_messages.append({
-					"role": "tool",
-					"tool_call_id": tc_id,
-					"content": result.get("content", ""),
-				})
-			# emit round_complete,继续下一轮
+			await _execute_tool_round()
 			round_complete.emit(_stream_content, _pending_tool_calls.duplicate(true), _round_tool_results.duplicate(true))
-
-			# 自动压缩：context 超 70% 时保留最近几轮，防止下轮请求过大超时
-			var stats := _estimate_context_usage()
-			if stats.pct > 70:
-				var before := _messages.size()
-				compact_context(3)
-				_logger.warn("Auto-compacted mid-session: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
-				# 压缩后重新注入动态上下文，让 AI 知道发生了压缩
-				_update_system_with_context()
+			_maybe_auto_compact()
 
 			continue
 		else:
@@ -451,6 +422,34 @@ func _run_react_loop() -> void:
 	_logger.append("SESSION", "Loop finished. total_messages=%d" % _messages.size())
 	_logger.end_session(_messages, {"session_id": _current_session_id})
 	_save_current_session()
+
+
+## Execute all pending tool calls from the current round.
+## Emits tool_started/tool_finished, appends tool results to _messages.
+func _execute_tool_round() -> void:
+	for tc in _pending_tool_calls:
+		if _abort_requested:
+			break
+		var tc_id: String = tc.get("id", "")
+		var fn: Dictionary = tc.get("function", {})
+		var tc_name: String = fn.get("name", "")
+		var tc_args_raw: String = fn.get("arguments", "{}")
+		tool_started.emit(tc_name)
+		var result: Dictionary = await _tool_registry.execute_tool(tc_name, tc_args_raw)
+		var ok: bool = result.get("ok", true)
+		tool_finished.emit(tc_name, ok)
+		_round_tool_results.append({"name": tc_name, "ok": ok})
+		_messages.append({"role": "tool", "tool_call_id": tc_id, "content": result.get("content", "")})
+
+
+## Auto-compact if context exceeds 70% — keeps last 3 exchanges, re-injects system context.
+func _maybe_auto_compact() -> void:
+	var stats := _estimate_context_usage()
+	if stats.pct > 70:
+		var before := _messages.size()
+		compact_context(3)
+		_logger.warn("Auto-compacted mid-session: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
+		_update_system_with_context()
 
 
 # ============ LLM 流式回调 ============

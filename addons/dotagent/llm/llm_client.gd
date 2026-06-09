@@ -256,28 +256,27 @@ func _parse_sse(body: PackedByteArray) -> void:
 			chunk_received.emit(content_chunk)
 			_note_activity()  # 收到流式数据，重置看门狗
 
-		# tool_calls
+		# tool_calls — accumulate streaming chunks into indexed array
 		if delta.has("tool_calls"):
-			var tcs: Array = delta.get("tool_calls", [])
-			for tc in tcs:
-				# tc 格式:{"index":0, "id":"...", "function":{"name":"...","arguments":"..."}}
-				# 流式时 id 和 name 只在第一个 chunk 出现,arguments 持续累加
-				var idx: int = int(tc.get("index", 0))
-				while _accumulated_tool_calls.size() <= idx:
-					_accumulated_tool_calls.append({
-						"id": "",
-						"type": "function",
-						"function": {"name": "", "arguments": ""},
-					})
-				var acc: Dictionary = _accumulated_tool_calls[idx]
-				if tc.has("id") and tc.get("id", "") != "":
-					acc["id"] = tc.get("id")
-				var fn: Dictionary = tc.get("function", {})
-				var fn_name := _get_string(fn, "name")
-				if fn_name != "":
-					acc["function"]["name"] = fn_name
-				if fn.has("arguments") and fn.get("arguments") != null:
-					acc["function"]["arguments"] += str(fn.get("arguments", ""))
+			for tc in delta.get("tool_calls", []):
+				_accumulate_tool_call_chunk(tc)
+
+
+## Accumulate a streaming tool_calls chunk into _accumulated_tool_calls[index].
+## Streaming format: id/name only in first chunk, arguments appended across chunks.
+func _accumulate_tool_call_chunk(tc: Dictionary) -> void:
+	var idx: int = int(tc.get("index", 0))
+	while _accumulated_tool_calls.size() <= idx:
+		_accumulated_tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+	var acc: Dictionary = _accumulated_tool_calls[idx]
+	if tc.has("id") and tc.get("id", "") != "":
+		acc["id"] = tc.get("id")
+	var fn: Dictionary = tc.get("function", {})
+	var fn_name := _get_string(fn, "name")
+	if fn_name != "":
+		acc["function"]["name"] = fn_name
+	if fn.has("arguments") and fn.get("arguments") != null:
+		acc["function"]["arguments"] += str(fn.get("arguments", ""))
 
 
 func _build_request_body(messages: Array, tools: Array, stream: bool) -> String:

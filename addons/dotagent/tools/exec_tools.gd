@@ -336,7 +336,24 @@ func _tool_get_node_type_info(args: Dictionary) -> Dictionary:
 	return _ok(JSON.stringify(info, "  "))
 
 
-# ============ 辅助 ============
+# ============ Helpers ============
+
+## Extract error lines from Godot subprocess stdout/stderr.
+## Shared by _tool_run_scene_capture and _get_compile_error_via_subprocess.
+func _extract_error_lines(text: String) -> Array:
+	var out: Array = []
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.is_empty():
+			continue
+		var lo := s.to_lower()
+		if s.begins_with("ERROR:") or s.begins_with("SCRIPT ERROR:") \
+				or s.begins_with("Parse Error:") or s.begins_with("USER ERROR:") \
+				or s.contains("push_error(") or s.contains("push_critical(") \
+				or (s.contains(".gd:") and (lo.contains("error") or lo.contains("parse"))):
+			out.append(s)
+	return out
+
 
 func _get_compile_error_via_subprocess(script_src: String) -> String:
 	# GDScript 4.x 无公开 API 获取编译错误文本。
@@ -360,20 +377,9 @@ func _get_compile_error_via_subprocess(script_src: String) -> String:
 
 	# 提取编译错误行（通常以 "ERROR:" 或行号+错误描述形式出现）
 	var full := "\n".join(output)
-	var errors: Array = []
-	for line in full.split("\n"):
-		var s := line.strip_edges()
-		if s.is_empty():
-			continue
-		# Godot 4 的脚本编译错误格式：res://path:行号 - Parse Error: ...
-		# 也匹配 "ERROR:" 前缀的通用错误
-		if s.contains("Parse Error:") or s.contains("SCRIPT ERROR:") \
-				or s.begins_with("ERROR:") \
-				or (s.contains(".gd:") and s.to_lower().contains("error")):
-			errors.append(s)
+	var errors := _extract_error_lines(full)
 
 	if errors.is_empty():
-		# 没抓到具体错误行，返回整个 stderr 的前几行供 AI 自行分析
 		var preview := full.strip_edges()
 		if preview.length() > 800:
 			preview = preview.substr(0, 800) + "\n... (truncated)"
@@ -428,20 +434,7 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	# read_stderr=true 捕获 stderr(错误信息通常在这)
 	var exit_code: int = OS.execute(godot_exe, arguments, output, true, false)
 	var full_output := "\n".join(output)
-
-	# 找 ERROR / SCRIPT ERROR / Parse Error / push_error
-	# Bug #5 fix: 用 starts_with 锚定行首,避免 "MY_ERROR_VAR" / "no errors found" / "error handling..." 等误报
-	var error_lines: Array = []
-	for line in full_output.split("\n"):
-		var l := line as String
-		var stripped := l.strip_edges()
-		if stripped.begins_with("ERROR:") \
-				or stripped.begins_with("SCRIPT ERROR:") \
-				or stripped.begins_with("Parse Error:") \
-				or stripped.begins_with("USER ERROR:") \
-				or stripped.contains("push_error(") \
-				or stripped.contains("push_critical("):
-			error_lines.append(stripped)
+	var error_lines := _extract_error_lines(full_output)
 
 	var preview := full_output
 	if preview.length() > 3000:

@@ -145,6 +145,15 @@ func _log_act(method: String, arg1 = null, arg2 = null, arg3 = null) -> void:
 		activity_panel.call(method, arg1)
 
 
+## Build a tool definition dict. props = parameters.properties, required = top-level "required" array.
+## Usage: _td("my_tool", "Does X", "_tool_my_tool", {"arg": {"type":"string","description":"..."}}, ["arg"])
+func _td(name: String, desc: String, method: String, props: Dictionary = {}, required: Array = [], dangerous: bool = false) -> Dictionary:
+	var p := {"type": "object", "properties": props}
+	if not required.is_empty():
+		p["required"] = required
+	return {"name": name, "description": desc, "parameters": p, "method_name": method, "dangerous": dangerous}
+
+
 ## 获取共享的 BackupManager（lazy init）
 func _get_backup() -> BackupManager:
 	if _backup == null:

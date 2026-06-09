@@ -120,62 +120,63 @@ func _write_conversation_md(messages: Array) -> void:
 	lines.append("---")
 	lines.append("")
 	for msg in messages:
-		var role: String = msg.get("role", "?")
-		# 关键:不能用 msg.get("content", "") 然后 typed 赋值
-		# 当 LLM 返回 content=null 时,get 不会触发 default,直接拿到 null → 崩
-		# 用 Variant 中间变量判断 nil
-		var content_raw = msg.get("content", null)
-		var content: String = str(content_raw) if content_raw != null else ""
-		match role:
-			"system":
-				lines.append("## system")
-				lines.append("")
-				lines.append("```")
-				lines.append(content)
-				lines.append("```")
-				lines.append("")
-			"user":
-				lines.append("## 👤 User")
-				lines.append("")
-				lines.append(content)
-				lines.append("")
-			"assistant":
-				lines.append("## 🤖 Assistant")
-				lines.append("")
-				if content != "":
-					lines.append(content)
-					lines.append("")
-				# tool_calls
-				var tool_calls: Array = msg.get("tool_calls", [])
-				if not tool_calls.is_empty():
-					for tc in tool_calls:
-						var name: String = tc.get("function", {}).get("name", "?")
-						var args_raw: String = tc.get("function", {}).get("arguments", "{}")
-						lines.append("**🔧 %s**" % name)
-						lines.append("")
-						lines.append("```json")
-						lines.append(args_raw)
-						lines.append("```")
-						lines.append("")
-			"tool":
-				var tool_call_id: String = msg.get("tool_call_id", "?")
-				lines.append("**⬅️ Tool result** (`%s`)" % tool_call_id)
-				lines.append("")
-				lines.append("```")
-				lines.append(content)
-				lines.append("```")
-				lines.append("")
-			_:
-				lines.append("## %s" % role)
-				lines.append("")
-				lines.append(content)
-				lines.append("")
+		_append_message_md(msg, lines)
 	var f := FileAccess.open(path, FileAccess.WRITE)
 	if f == null:
 		push_error("[Logger] Cannot write %s" % path)
 		return
 	f.store_string("\n".join(lines))
 	f.close()
+
+
+## Render a single message as Markdown lines (appends to `lines`).
+## Reusable — could also be called from session export or UI preview.
+func _append_message_md(msg: Dictionary, lines: Array) -> void:
+	var role: String = msg.get("role", "?")
+	var content_raw = msg.get("content", null)
+	var content: String = str(content_raw) if content_raw != null else ""
+	match role:
+		"system":
+			lines.append("## system")
+			lines.append("")
+			lines.append("```")
+			lines.append(content)
+			lines.append("```")
+			lines.append("")
+		"user":
+			lines.append("## 👤 User")
+			lines.append("")
+			lines.append(content)
+			lines.append("")
+		"assistant":
+			lines.append("## 🤖 Assistant")
+			lines.append("")
+			if content != "":
+				lines.append(content)
+				lines.append("")
+			var tool_calls: Array = msg.get("tool_calls", [])
+			for tc in tool_calls:
+				var name: String = tc.get("function", {}).get("name", "?")
+				var args_raw: String = tc.get("function", {}).get("arguments", "{}")
+				lines.append("**🔧 %s**" % name)
+				lines.append("")
+				lines.append("```json")
+				lines.append(args_raw)
+				lines.append("```")
+				lines.append("")
+		"tool":
+			var tool_call_id: String = msg.get("tool_call_id", "?")
+			lines.append("**⬅️ Tool result** (`%s`)" % tool_call_id)
+			lines.append("")
+			lines.append("```")
+			lines.append(content)
+			lines.append("```")
+			lines.append("")
+		_:
+			lines.append("## %s" % role)
+			lines.append("")
+			lines.append(content)
+			lines.append("")
 
 
 func _write_meta(messages: Array, extra: Dictionary) -> void:
