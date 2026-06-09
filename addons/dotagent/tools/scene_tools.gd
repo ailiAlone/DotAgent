@@ -477,222 +477,87 @@ func _list_nodes_flat(node: Node, out: Array) -> void:
 
 ## List all signal connections on a node (editor + script, .connect / .tscn / API / incoming)
 func _tool_get_signal_connections(args: Dictionary) -> Dictionary:
-		var node := _resolve_node(args.get("path", ""))
-		if node == null:
-			return _err("Node not found")
+	var node := _resolve_node(args.get("path", ""))
+	if node == null:
+		return _err("Node not found")
 
-		var ei = _ei()
-		var root = ei.get_edited_scene_root() if ei else null
-		var result: Array = []
+	var ei = _ei()
+	var root = ei.get_edited_scene_root() if ei else null
+	var result: Array = []
 
-		# ---- 1. 脚本 .connect() 静态分析 ----
-		# 扫描场景中所有脚本，找 node_path.signal_name.connect(method) 模式
-		if root:
-			var node_rel_path := str(root.get_path_to(node))
-			var node_name := node.name
-			var scripts_to_scan: Array = []
-			# 收集场景中所有节点的脚本
-			scripts_to_scan.append({"path": root.scene_file_path, "type": "tscn"})
-			_collect_scripts(root, scripts_to_scan)
+	# 1. Runtime connections via get_signal_connection_list (covers .connect calls)
+	for sig in node.get_signal_list():
+		var sig_name: String = sig["name"]
+		for c in node.get_signal_connection_list(sig_name):
+			var target = c.get("callable", null)
+			if target == null:
+				continue
+			var ti := _describe_callable(target)
+			result.append({"signal": sig_name, "target": ti, "source": "script"})
 
-			var seen_pairs := {}  # 去重: "signal->method"
-			for entry in scripts_to_scan:
-				if entry.type == "gd":
-					var f_script := FileAccess.open(entry.path, FileAccess.READ)
-					if f_script == null:
-						continue
-					var script_content := f_script.get_as_text()
-					f_script.close()
-					var script_lines := script_content.split("
-")
-					for line_idx in range(script_lines.size()):
-						var line := script_lines[line_idx].strip_edges()
-						if line.begins_with("#") or line.begins_with("//"):
-							continue
-						# 匹配: %NodeName.signal_name.connect(method) 或 NodeName.signal_name.connect(method)
-						# 也匹配: node_var.signal_name.connect(Callable(self, "method"))
-						if not ".connect(" in line:
-							continue
-						# 检查是否指向目标节点: %Name, Name, 或 onready 变量引用
-						var points_to_node := false
-						if ("%" + node_name) in line or node_name in line:
-							points_to_node = true
-						# 也检查: node_rel_path 中的节点名片段
-						if node_rel_path in line:
-							points_to_node = true
-						if not points_to_node:
-							continue
-						# 提取信号名和方法名
-						var dot_idx := line.find(".connect(")
-						if dot_idx < 0:
-							continue
-						var before_dot := line.substr(0, dot_idx).strip_edges()
-						# 信号名在 . 之前的部分末尾: "btn.pressed" → "pressed"
-						var space_idx := before_dot.rfind(" ")
-						var sig_candidate := before_dot.substr(space_idx + 1).strip_edges()
-						# 信号名也可能在 . 之前: %StartButton.pressed
-						var last_dot := before_dot.rfind(".")
-						if last_dot >= 0:
-							sig_candidate = before_dot.substr(last_dot + 1).strip_edges()
-						# 提取方法名: .connect(_on_start_pressed) 或 .connect(Callable(self, "method"))
-						var paren_start := line.find("(", dot_idx)
-						var paren_end := _find_matching_paren(line, paren_start)
-						if paren_end < 0:
-							continue
-						var args_str := line.substr(paren_start + 1, paren_end - paren_start - 1)
-						var method_name := ""
-						if args_str.begins_with("Callable("):
-							# Callable(self, "method_name")
-							var parts := args_str.substr(9).split(",")
-							if parts.size() >= 2:
-								method_name = parts[1].strip_edges().strip_edges('"').strip_edges("'")
-						else:
-							# 直接方法名 .connect(method_name)
-							method_name = args_str.strip_edges().strip_edges('"').strip_edges("'")
-
-						if method_name.is_empty():
-							continue
-						var pair_key := sig_candidate + "->" + method_name
-						if seen_pairs.has(pair_key):
-							continue
-						seen_pairs[pair_key] = true
-						result.append({
-							"signal": sig_candidate if sig_candidate.is_empty() else sig_candidate,
-							"target": {"node": "(" + entry.path.get_file().get_basename() + ")", "method": method_name},
-							"source": "script (" + entry.path.get_file() + ":" + str(line_idx + 1) + ")",
-						})
-
-		# ---- 2. Inspector 连接（从 .tscn 的 [connection] 段解析） ----
-		if root and not root.scene_file_path.is_empty():
-			var node_rel_path := str(root.get_path_to(node))
-			var f_tscn := FileAccess.open(root.scene_file_path, FileAccess.READ)
-			if f_tscn:
-				var tscn_content := f_tscn.get_as_text()
-				f_tscn.close()
-				for line in tscn_content.split("
-"):
-					line = line.strip_edges()
-					if not line.begins_with("[connection "):
-						continue
-					var sig_name := _extract_tscn_attr(line, "signal")
-					var from_path := _extract_tscn_attr(line, "from")
-					var to_path := _extract_tscn_attr(line, "to")
-					var method := _extract_tscn_attr(line, "method")
-					if sig_name.is_empty() or method.is_empty():
-						continue
-					if from_path == node_rel_path:
-						result.append({
-							"signal": sig_name,
-							"target": {"node": to_path if to_path and to_path != "." else "(root)", "method": method},
-							"source": "editor (inspector)",
-						})
-
-		# ---- 3. 运行时连接（get_signal_connection_list）----
-		for sig in node.get_signal_list():
-			var sig_name: String = sig["name"]
-			var conns := node.get_signal_connection_list(sig_name)
-			for c in conns:
-				var target_obj = c.get("callable", null)
-				if target_obj == null:
+	# 2. Editor connections from .tscn [connection] sections
+	if root and not root.scene_file_path.is_empty():
+		var node_path := str(root.get_path_to(node))
+		var f := FileAccess.open(root.scene_file_path, FileAccess.READ)
+		if f:
+			for line in f.get_as_text().split("\n"):
+				line = line.strip_edges()
+				if not line.begins_with("[connection "):
 					continue
-				var target_info := _describe_callable(target_obj)
-				var pair_key := sig_name + "->" + target_info.get("method", "?")
-				# 去重：避免和静态分析重复
-				var already_seen := false
-				for r in result:
-					if r.get("signal") == sig_name and r.get("target", {}).get("method") == target_info.get("method", "?"):
-						already_seen = true
-						break
-				if not already_seen:
-					result.append({
-						"signal": sig_name,
-						"target": target_info,
-						"source": "runtime",
-					})
+				var sig := _extract_tscn_attr(line, "signal")
+				var from_n := _extract_tscn_attr(line, "from")
+				var to_n := _extract_tscn_attr(line, "to")
+				var method := _extract_tscn_attr(line, "method")
+				if sig.is_empty() or method.is_empty():
+					continue
+				if from_n == node_path:
+					result.append({"signal": sig, "target": {"node": to_n if to_n != "." else "(root)", "method": method}, "source": "editor"})
+			f.close()
 
-		# ---- 4. 传入连接 ----
-		for inc in node.get_incoming_connections():
-			var src_signal: String = inc.get("signal_name", "?")
-			var target_callable = inc.get("callable", null)
-			var ti := _describe_callable(target_callable)
-			result.append({
-				"signal": src_signal,
-				"target": {"node": node.name, "method": ti.get("method", "?")},
-				"direction": "incoming",
-				"source": "incoming",
-			})
+	# 3. Incoming connections
+	for inc in node.get_incoming_connections():
+		var sig: String = inc.get("signal_name", "?")
+		var ti := _describe_callable(inc.get("callable", null))
+		result.append({"signal": sig, "target": {"node": node.name, "method": ti.get("method", "?")}, "direction": "incoming"})
 
-		if result.is_empty():
-			return _ok("(no signal connections found on '%s')" % node.name)
+	if result.is_empty():
+		return _ok("(no signal connections found on '%s')" % node.name)
 
-		var lines: Array = []
-		lines.append("Signal connections on '%s' (%d total):" % [node.name, result.size()])
-		for r in result:
-			var sig: String = r.get("signal", "?")
-			var tgt: Dictionary = r.get("target", {})
-			if r.get("direction") == "incoming":
-				lines.append("  ← %s.%s  [incoming]" % [tgt.get("node", "?"), tgt.get("method", "?")])
-			else:
-				var src := r.get("source", "?")
-				lines.append("  %s → %s.%s  [%s]" % [sig, tgt.get("node", "?"), tgt.get("method", "?"), src])
-		return _ok("
-".join(lines))
+	var lines: Array = []
+	lines.append("Signal connections on '%s':" % node.name)
+	for r in result:
+		var sig: String = r.get("signal", "?")
+		var tgt: Dictionary = r.get("target", {})
+		if r.get("direction") == "incoming":
+			lines.append("  %s <- %s.%s" % [sig, tgt.get("node", "?"), tgt.get("method", "?")])
+		else:
+			lines.append("  %s -> %s.%s  [%s]" % [sig, tgt.get("node", "?"), tgt.get("method", "?"), r.get("source", "?")])
+	return _ok("\n".join(lines))
 
 
-	## 找匹配的右括号
-	func _find_matching_paren(line: String, open_idx: int) -> int:
-		var depth := 0
-		for i in range(open_idx, line.length()):
-			var ch := line[i]
-			if ch == '(':
-				depth += 1
-			elif ch == ')':
-				depth -= 1
-				if depth == 0:
-					return i
-		return -1
+## Extract an attribute value from a .tscn [connection] line, e.g. signal="pressed"
+func _extract_tscn_attr(line: String, attr: String) -> String:
+	var search := attr + '="'
+	var start := line.find(search)
+	if start < 0:
+		return ""
+	start += search.length()
+	var end := line.find('"', start)
+	if end < 0:
+		return ""
+	return line.substr(start, end - start)
 
 
-	## 从 [connection signal="x" from="y" to="z" method="w"] 中提取属性值
-	func _extract_tscn_attr(line: String, attr: String) -> String:
-		var search := attr + '="'
-		var start := line.find(search)
-		if start < 0:
-			return ""
-		start += search.length()
-		var end := line.find('"', start)
-		if end < 0:
-			return ""
-		return line.substr(start, end - start)
-
-
-	## 递归收集节点上的脚本路径
-	func _collect_scripts(node: Node, out: Array) -> void:
-		var script = node.get_script()
-		if script != null and not script.resource_path.is_empty():
-			var path = script.resource_path
-			# 去重
-			var already := false
-			for entry in out:
-				if entry.path == path:
-					already = true
-					break
-			if not already:
-				out.append({"path": path, "type": "gd"})
-		for child in node.get_children():
-			_collect_scripts(child, out)
-
-
-	## 将 Callable 描述为可读信息
-	func _describe_callable(c: Variant) -> Dictionary:
-		if c == null:
-			return {"node": "?", "method": "?"}
-		var s := str(c)
-		# Godot 4 Callable 的字符串格式: "NodeName::method_name"
-		if s.contains("::"):
-			var parts := s.split("::")
-			return {"node": parts[0].trim_prefix("<").trim_suffix(">"), "method": parts[1]}
-		return {"node": "?", "method": s}# ============ Helpers ============
+## Convert a Callable to {node, method}
+func _describe_callable(c: Variant) -> Dictionary:
+	if c == null:
+		return {"node": "?", "method": "?"}
+	var s := str(c)
+	# Godot 4 Callable string format: "NodeName::method_name"
+	if s.contains("::"):
+		var parts := s.split("::")
+		return {"node": parts[0].trim_prefix("<").trim_suffix(">"), "method": parts[1]}
+	return {"node": "?", "method": s}# ============ Helpers ============
 
 func _resolve_node(path: String) -> Node:
 	var ei = _ei()
