@@ -10,9 +10,9 @@ const CONFIG_PATH := "res://addons/dotagent/config.cfg"
 
 const DEFAULT_BASE_URL := "https://api.openai.com/v1"
 const DEFAULT_MODEL := "gpt-4o"
-const DEFAULT_MAX_TOKENS := 4  # K tokens, UI 显示 "Max Tokens (K)"
+const DEFAULT_MAX_TOKENS_K := 128  # max_tokens 单位 K
 const DEFAULT_TEMPERATURE := 0.2
-const DEFAULT_CONTEXT_LIMIT := 1024  # K tokens, DeepSeek v4 支持 1M
+const DEFAULT_CONTEXT_LIMIT := 1024  # K tokens 上限
 
 var _config := ConfigFile.new()
 var _loaded := false
@@ -40,17 +40,7 @@ func get_base_url() -> String:
 
 
 func get_api_key() -> String:
-	_load()
-	# 优先读 config.cfg 里的"用户填入"的 key — 这是正常运行时路径(Settings 对话框填入)
-	var cfg_key: String = str(_config.get_value("llm", "api_key", ""))
-	if not cfg_key.is_empty():
-		return cfg_key
-	# Fallback: 从环境变量读。Windows 上用户在"用户变量"里设的 DeepSeek_APIKEY
-	# 会被 Godot 进程继承,作为"防着 config 丢了/没填"的兜底。
-	var env_key: String = OS.get_environment("DeepSeek_APIKEY")
-	if not env_key.is_empty():
-		return env_key
-	return ""
+	return OS.get_environment("DOTAGENT_API_KEY")
 
 
 func get_model() -> String:
@@ -58,8 +48,13 @@ func get_model() -> String:
 	return _config.get_value("llm", "model", DEFAULT_MODEL)
 
 
+func get_max_tokens_k() -> int:
+	_load()
+	return int(_config.get_value("llm", "max_tokens_k", DEFAULT_MAX_TOKENS_K))
+
+
 func get_max_tokens() -> int:
-	return DEFAULT_MAX_TOKENS  # 不在 UI 配置，硬编码默认值
+	return get_max_tokens_k()
 
 
 func get_temperature() -> float:
@@ -77,18 +72,25 @@ func get_language() -> String:
 	return str(_config.get_value("llm", "language", "en"))
 
 
+func get_vision_enabled() -> bool:
+	_load()
+	return bool(_config.get_value("llm", "vision_enabled", false))
+
+
 func is_configured() -> bool:
 	return not get_api_key().is_empty() and not get_base_url().is_empty()
 
 
-func save(base_url: String, api_key: String, model: String, temperature: float, context_limit: int = DEFAULT_CONTEXT_LIMIT, language: String = "zh") -> Error:
+func save(base_url: String, api_key: String, model: String, temperature: float, context_limit: int = DEFAULT_CONTEXT_LIMIT, language: String = "zh", max_tokens_k: int = DEFAULT_MAX_TOKENS_K, vision_enabled: bool = false) -> Error:
 	_load()
 	_config.set_value("llm", "base_url", base_url)
-	_config.set_value("llm", "api_key", api_key)
 	_config.set_value("llm", "model", model)
 	_config.set_value("llm", "temperature", temperature)
 	_config.set_value("llm", "context_limit", context_limit)
 	_config.set_value("llm", "language", language)
+	_config.set_value("llm", "max_tokens_k", max_tokens_k)
+	_config.set_value("llm", "vision_enabled", vision_enabled)
+	# api_key 不写入 config 文件 — 只从环境变量 DOTAGENT_API_KEY 读取
 	var err := _config.save(CONFIG_PATH)
 	if err == OK:
 		_loaded = false  # 下次 get_xxx() 重读磁盘

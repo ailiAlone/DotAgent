@@ -48,9 +48,18 @@ text = "API Key:"
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "sk-be3397fa225f48c99373afbe94263bca"
-placeholder_text = "sk-..."
+text = ""
+placeholder_text = "Loaded from DOTAGENT_API_KEY"
 secret = true
+
+[node name="VisionLabel" type="Label" parent="Root/Form"]
+layout_mode = 2
+text = "Vision (image input):"
+
+[node name="VisionCheckBox" type="CheckBox" parent="Root/Form"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Model supports image analysis"
 
 [node name="ModelLabel" type="Label" parent="Root/Form"]
 layout_mode = 2

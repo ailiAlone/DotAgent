@@ -223,6 +223,42 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_cleanup_backups",
 			"dangerous": true,
 		},
+		{
+			"name": "list_skills",
+			"description": "List all available scene-type skills (2D game, UI, 3D game) with their trigger keywords. Skills are auto-matched based on your message, but you can call this to see what's available or if you need a specific skill not auto-matched.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_list_skills",
+			"dangerous": false,
+		},
+		{
+			"name": "create_skill",
+			"description": "Create a new skill file in res://addons/dotagent/skills/custom/. Skills auto-load next session and are matched by trigger keywords against user messages.\n\nParameters:\n- name: kebab-case filename without .md, e.g. 'tilemap-platformer'\n- triggers: lowercase keywords, 5-15 recommended, e.g. ['tilemap', 'platformer', 'level']\n- content: markdown body. Recommended sections: Root & Structure, Key Nodes table, Mandatory Checklist, Common Mistakes (see existing skills in builtin/ for examples)\n\nAfter creating, call list_skills to verify. Overlapping triggers are OK — all matching skills get injected, they don't override each other.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"name": {"type": "string", "description": "Skill filename (without .md), kebab-case, e.g. 'tilemap-platformer'"},
+					"triggers": {"type": "array", "items": {"type": "string"}, "description": "Trigger keywords (lowercase), e.g. ['tilemap', 'tileset', 'platformer', 'level']"},
+					"content": {"type": "string", "description": "Markdown body — sections: Root & Structure, Key Nodes, Mandatory Checklist, Common Mistakes"},
+				},
+				"required": ["name", "triggers", "content"],
+			},
+			"method_name": "_tool_create_skill",
+			"dangerous": false,
+		},
+		{
+			"name": "peek_scene",
+			"description": "Lightweight scene reader — returns only the node tree structure (names, types, parents, scripts) WITHOUT property values. Much smaller than read_resource_as_text of a .tscn (~500 chars vs 10,000+). Use this instead of read_resource_as_text to understand scene structure.\n\nParameters:\n- path: res:// path to .tscn file\n- max_depth: 0=full tree, 1=root only, 2=root+direct children, etc. (default 0)",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Path to .tscn file"},
+					"max_depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default=0)", "default": 0},
+				},
+				"required": ["path"],
+			},
+			"method_name": "_tool_peek_scene",
+			"dangerous": false,
+		},
 	]
 
 
@@ -246,6 +282,9 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_input_actions": return _tool_get_input_actions(args)
 		"_tool_add_input_action": return _tool_add_input_action(args)
 		"_tool_cleanup_backups": return _tool_cleanup_backups(args)
+		"_tool_list_skills": return _tool_list_skills(args)
+		"_tool_create_skill": return _tool_create_skill(args)
+		"_tool_peek_scene": return _tool_peek_scene(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -631,4 +670,175 @@ func _tool_preview_backup(args: Dictionary) -> Dictionary:
 	for item in found:
 		lines.append("\n--- Backup @ %s (%d bytes) ---" % [item["timestamp"], item["size"]])
 		lines.append(item["preview"])
+	return _ok("\n".join(lines))
+
+
+## List all available scene-type skills with their trigger keywords.
+func _tool_list_skills(args: Dictionary) -> Dictionary:
+	var sm := SkillManager.new()
+	var skills := sm.list_skills()
+	if skills.is_empty():
+		return _ok("(no skills found in res://addons/dotagent/skills/)")
+	var lines: Array = []
+	lines.append("Available skills (%d):" % skills.size())
+	for s in skills:
+		var triggers := ", ".join(s.get("triggers", []))
+		var source := "builtin" if "builtin" in s.get("path", "") else "custom"
+		lines.append("  [%s] %s — triggers: %s" % [source, s.get("name", "?"), triggers])
+	return _ok("\n".join(lines))
+
+
+## Create a new skill file. Validates format, checks for trigger conflicts.
+func _tool_create_skill(args: Dictionary) -> Dictionary:
+	var skill_name: String = args.get("name", "")
+	var triggers: Array = args.get("triggers", [])
+	var content: String = args.get("content", "")
+
+	if skill_name.is_empty():
+		return _err("name is required (kebab-case, without .md)")
+	if triggers.is_empty():
+		return _err("triggers is required (array of lowercase keywords)")
+	if content.is_empty():
+		return _err("content is required")
+
+	if " " in skill_name or "/" in skill_name:
+		return _err("name must be kebab-case, no spaces or slashes: " + skill_name)
+
+	var triggers_line := "# triggers: " + ", ".join(triggers)
+	var file_content := triggers_line + "\n\n" + content
+
+	var dir := "res://addons/dotagent/skills/custom"
+	if not DirAccess.dir_exists_absolute(dir):
+		DirAccess.make_dir_recursive_absolute(dir)
+
+	var path := dir.path_join(skill_name + ".md")
+	if FileAccess.file_exists(path):
+		return _err("Skill already exists: " + path + ". Use replace_in_file to update it.")
+
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return _err("Cannot write: " + path)
+	f.store_string(file_content)
+	f.close()
+
+	# Check for trigger overlaps with existing skills
+	var sm := SkillManager.new()
+	var overlap_warning := ""
+	for s in sm.list_skills():
+		if s.get("name") == skill_name:
+			continue
+		var existing: Array = s.get("triggers", [])
+		var shared: Array = []
+		for t in triggers:
+			if t in existing:
+				shared.append(t)
+		if not shared.is_empty():
+			if overlap_warning.is_empty():
+				overlap_warning = "\n\n⚠️ Trigger overlaps detected:"
+			overlap_warning += "\n  '%s' shares: %s" % [s.get("name", "?"), ", ".join(shared)]
+
+	var lines: Array = []
+	lines.append("✅ Skill '%s' created at %s" % [skill_name, path])
+	lines.append("Triggers: %s" % ", ".join(triggers))
+	lines.append("Content: %d chars" % content.length())
+	if not overlap_warning.is_empty():
+		lines.append(overlap_warning)
+		lines.append("\nMultiple skills with same triggers ALL get injected — they don't override each other. If they conflict, merge them into one skill.")
+	lines.append("\nCall list_skills to verify. Auto-injection available after session restart.")
+	return _ok("\n".join(lines))
+
+
+## Lightweight .tscn reader — returns only node tree structure, no property values.
+func _tool_peek_scene(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var max_depth: int = int(args.get("max_depth", 0))
+	if path.is_empty():
+		return _err("path is required")
+	if not FileAccess.file_exists(path):
+		return _err("File not found: " + path)
+	if not path.ends_with(".tscn") and not path.ends_with(".scn"):
+		return _err("Only .tscn/.scn files supported")
+
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return _err("Cannot read file")
+	var text := f.get_as_text()
+	f.close()
+
+	# Parse node entries
+	var nodes: Array[Dictionary] = []
+	var node_re := RegEx.new()
+	node_re.compile('\\[node name="([^"]*)" type="([^"]*)"(?: parent="([^"]*)")?')
+	for m in node_re.search_all(text):
+		nodes.append({"name": m.get_string(1), "type": m.get_string(2), "parent": m.get_string(3)})
+
+	# Parse script assignments
+	var scripts: Dictionary = {}
+	var script_re := RegEx.new()
+	script_re.compile('script\\s*=\\s*ExtResource\\("([^"]*)"\\)')
+	# Map node→ExtResource ID
+	var node_res_id: Dictionary = {}
+	for line in text.split("\n"):
+		if '[node name="' in line and "script" in line:
+			var nm := line.substr(line.find('name="') + 6)
+			nm = nm.substr(0, nm.find('"'))
+			for m2 in script_re.search_all(line):
+				node_res_id[nm] = m2.get_string(1)
+		# Direct script="res://..." format
+		if '[node name="' in line and 'script="res://' in line:
+			var nm := line.substr(line.find('name="') + 6)
+			nm = nm.substr(0, nm.find('"'))
+			var sp := line.find('script="') + 8
+			var se := line.find('"', sp)
+			scripts[nm] = line.substr(sp, se - sp)
+
+	# Parse ExtResource mappings
+	var ext_res: Dictionary = {}
+	var res_re := RegEx.new()
+	res_re.compile('\\[ext_resource type="Script"[^\\]]*path="([^"]*)" id="([^"]*)"')
+	for m in res_re.search_all(text):
+		ext_res[m.get_string(2)] = m.get_string(1)
+	# Resolve
+	for node_name in node_res_id:
+		var rid: String = node_res_id[node_name]
+		if ext_res.has(rid):
+			scripts[node_name] = ext_res[rid]
+
+	# Build tree
+	if nodes.is_empty():
+		return _ok("(no nodes in %s)" % path)
+
+	var children: Dictionary = {}
+	for n in nodes:
+		var p := n.get("parent", "")
+		if p.is_empty(): p = "."
+		if not children.has(p):
+			children[p] = []
+		children[p].append(n)
+
+	var lines: Array = []
+	lines.append("%s (%d nodes):" % [path.get_file(), nodes.size()])
+
+	var _build: Callable
+	var _children := children
+	var _scripts := scripts
+	_build = func(node: Dictionary, depth: int) -> void:
+		if max_depth > 0 and depth > max_depth:
+			return
+		var indent := "  ".repeat(depth)
+		var name: String = node.get("name")
+		var type: String = node.get("type")
+		var st := ""
+		if _scripts.has(name):
+			st = " [%s]" % _scripts[name].get_file()
+		lines.append("%s%s (%s)%s" % [indent, name, type, st])
+		var cn := node.get("name")
+		if _children.has(cn):
+			for child in _children[cn]:
+				_build.call(child, depth + 1)
+
+	if children.has("."):
+		for node in children["."]:
+			_build.call(node, 0)
+
 	return _ok("\n".join(lines))

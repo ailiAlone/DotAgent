@@ -67,6 +67,8 @@ var _llm_client: LLMClient = null
 var _tool_registry: ToolRegistry = null
 var _logger: SessionLog = null
 var _session_store: SessionStore = null
+var _skill_manager: SkillManager = null
+var _active_skill_content: String = ""
 var _current_session_id: String = ""
 var _messages: Array[Dictionary] = []
 var _running: bool = false
@@ -94,6 +96,7 @@ func setup(p_plugin: Object, p_activity_panel: Object, p_host_node: Node) -> voi
 	_tool_registry = ToolRegistry.new()
 	_logger = SessionLog.instance()
 	_session_store = SessionStore.new()
+	_skill_manager = SkillManager.new()
 
 	_llm_client.tool_registry = _tool_registry
 	_llm_client.set_host(host_node)
@@ -106,7 +109,7 @@ func setup(p_plugin: Object, p_activity_panel: Object, p_host_node: Node) -> voi
 	_llm_client.progress_done.connect(_on_progress_done)
 
 	_register_tools()
-	_messages.append({"role": "system", "content": STATIC_SYSTEM_PROMPT})
+	_messages.append({"role": "system", "content": _system_prompt_with_model()})
 
 
 func _tool_client_setup() -> void:
@@ -170,6 +173,12 @@ func send_user_message(text: String) -> void:
 	_logger.start_session()
 	_logger.append("USER", "Sent: " + text)
 	_messages.append({"role": "user", "content": text})
+
+	# Auto-match skills based on user message, inject into system prompt
+	_active_skill_content = _skill_manager.match(text)
+	if not _active_skill_content.is_empty():
+		_logger.append("SKILL", "Matched skills, injecting %d chars" % _active_skill_content.length())
+
 	_save_current_session()
 	await _run_react_loop()
 
@@ -187,7 +196,7 @@ func clear_messages() -> void:
 	if _running:
 		abort_current()
 	_messages.clear()
-	_messages.append({"role": "system", "content": STATIC_SYSTEM_PROMPT})
+	_messages.append({"role": "system", "content": _system_prompt_with_model()})
 	_save_current_session()
 
 
@@ -209,7 +218,7 @@ func force_clean_session() -> String:
 	var info := _session_store.create_session("")
 	_current_session_id = info["id"]
 	_messages.clear()
-	_messages.append({"role": "system", "content": STATIC_SYSTEM_PROMPT})
+	_messages.append({"role": "system", "content": _system_prompt_with_model()})
 	_save_current_session()
 	session_changed.emit(_current_session_id, _messages.duplicate())
 	return _current_session_id
@@ -227,7 +236,7 @@ func switch_session(session_id: String, suppress_save: bool = false) -> void:
 
 	# 逐段扫描，按 assistant→tool 配对处理
 	_messages.clear()
-	_messages.append({"role": "system", "content": STATIC_SYSTEM_PROMPT})
+	_messages.append({"role": "system", "content": _system_prompt_with_model()})
 
 	var i := 0
 	while i < msgs.size():
@@ -283,12 +292,17 @@ func switch_session(session_id: String, suppress_save: bool = false) -> void:
 			i += 1
 
 	_current_session_id = session_id
-	# 自动压缩：如果消息过多（估算超 context 70%），自动精简
-	var stats := _estimate_context_usage()
-	if stats.pct > 70:
+	# Aggressive auto-compact on session load: MiniMax times out at ~50+ messages
+	if _messages.size() > 30:
 		var before := _messages.size()
-		compact_context(max(2, int(5 * 70.0 / stats.pct)))
-		_logger.warn("Auto-compacted on session load: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
+		compact_context(3)
+		_logger.warn("Auto-compacted on session load: %d → %d msgs (was too large for MiniMax)" % [before, _messages.size()])
+	else:
+		var stats := _estimate_context_usage()
+		if stats.pct > 70:
+			var before := _messages.size()
+			compact_context(max(2, int(5 * 70.0 / stats.pct)))
+			_logger.warn("Auto-compacted on session load: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
 	session_changed.emit(session_id, _messages.duplicate())
 
 
@@ -406,6 +420,7 @@ func _run_react_loop() -> void:
 				"tool_calls": _pending_tool_calls.duplicate(true),
 			})
 			await _execute_tool_round()
+			_inject_pending_image()
 			round_complete.emit(_stream_content, _pending_tool_calls.duplicate(true), _round_tool_results.duplicate(true))
 			_maybe_auto_compact()
 
@@ -440,6 +455,35 @@ func _execute_tool_round() -> void:
 		tool_finished.emit(tc_name, ok)
 		_round_tool_results.append({"name": tc_name, "ok": ok})
 		_messages.append({"role": "tool", "tool_call_id": tc_id, "content": result.get("content", "")})
+
+
+## Check for pending image marker and inject as user message with image attachment.
+func _inject_pending_image() -> void:
+	const marker_path := "res://.dotagent_pending_image.json"
+	if not FileAccess.file_exists(marker_path):
+		return
+	var f := FileAccess.open(marker_path, FileAccess.READ)
+	if f == null:
+		return
+	var text := f.get_as_text()
+	f.close()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(marker_path))
+
+	var json := JSON.new()
+	if json.parse(text) != OK:
+		return
+	var marker: Dictionary = json.data
+	var path: String = marker.get("path", "")
+	var question: String = marker.get("question", "")
+	if path.is_empty():
+		return
+
+	_messages.append({
+		"role": "user",
+		"content": question,
+		"images": [path],
+	})
+	_logger.append("IMAGE", "Injected image: %s" % path.get_file())
 
 
 ## Auto-compact if context exceeds 70% — keeps last 3 exchanges, re-injects system context.
@@ -520,9 +564,19 @@ func _save_current_session() -> void:
 
 # ============ 动态上下文注入 ============
 
+func _system_prompt_with_model() -> String:
+	var base := STATIC_SYSTEM_PROMPT + "\n\n当前模型: " + _config_manager.get_model()
+	if _config_manager.get_vision_enabled():
+		base += "\n🖼️ 视觉能力: 支持图片输入 — 可使用 screenshot_editor / screenshot_runtime / analyze_image"
+	return base
+
+
 func _update_system_with_context() -> void:
 	var dynamic := _build_dynamic_context()
-	var combined := STATIC_SYSTEM_PROMPT + "\n\n[当前上下文]\n" + dynamic
+	var combined := _system_prompt_with_model() + "\n\n[当前上下文]\n" + dynamic
+	# Inject matched skill content if any
+	if not _active_skill_content.is_empty():
+		combined += "\n\n[场景技能 — 开发规范]\n" + _active_skill_content
 	if _messages.size() > 0 and _messages[0].get("role", "") == "system":
 		_messages[0]["content"] = combined
 	else:

@@ -557,7 +557,10 @@ func _describe_callable(c: Variant) -> Dictionary:
 	if s.contains("::"):
 		var parts := s.split("::")
 		return {"node": parts[0].trim_prefix("<").trim_suffix(">"), "method": parts[1]}
-	return {"node": "?", "method": s}# ============ Helpers ============
+	return {"node": "?", "method": s}
+
+
+# ============ Helpers ============
 
 func _resolve_node(path: String) -> Node:
 	var ei = _ei()

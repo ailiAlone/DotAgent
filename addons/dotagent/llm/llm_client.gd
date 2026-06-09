@@ -22,7 +22,7 @@ signal progress_done()  # 请求结束(成功/失败/取消)时 emit
 
 const REQUEST_TIMEOUT := 120.0
 const TEST_WATCHDOG_TIMEOUT := 10.0  # Test Connection 用,快速失败反馈
-const CHAT_WATCHDOG_TIMEOUT := 60.0  # 正常对话用,给慢 LLM 留余地（DeepSeek 大上下文可能 30s+）
+const CHAT_WATCHDOG_TIMEOUT := 120.0  # 正常对话用。大上下文下 LLM 首 token 可能 60-90s，留足余量
 
 var tool_registry: ToolRegistry
 var _host_node: Node = null  # 用来挂载 HTTPRequest 的宿主节点
@@ -35,6 +35,7 @@ var _accumulated_finish_reason: String = ""  # LLM API 的 finish_reason:"stop"/
 var _abort: bool = false
 var _active: bool = false
 var _watchdog_id: int = 0
+var _watchdog_timeout: float = CHAT_WATCHDOG_TIMEOUT
 var _last_activity: float = 0.0  # 上次收到数据的时刻，动态看门狗用
 
 
@@ -49,7 +50,7 @@ func set_host(node: Node) -> void:
 
 
 ## 发起一次聊天请求。完成后通过 signal 通知。
-## timeout: 自定义 watchdog 超时(秒)。<0 用 CHAT_WATCHDOG_TIMEOUT(25s),
+## timeout: 自定义 watchdog 超时(秒)。<0 用 CHAT_WATCHDOG_TIMEOUT(60s),
 ##       Test Connection 传 10.0 走 TEST_WATCHDOG_TIMEOUT 行为。
 func chat_stream(messages: Array, tools: Array, timeout: float = -1.0) -> Error:
 	if _active:
@@ -95,7 +96,7 @@ func chat_stream(messages: Array, tools: Array, timeout: float = -1.0) -> Error:
 	var body := _build_request_body(messages, tools, true)
 
 	_logger.append("LLM", "POST %s" % url)
-	_logger.append("LLM", "model=%s messages=%d tools=%d" % [_config.get_model(), messages.size(), tools.size()])
+	_logger.append("LLM", "model=%s messages=%d tools=%d body=%dKB" % [_config.get_model(), messages.size(), tools.size(), body.length() / 1024])
 
 	var err := _http.request(url, headers, HTTPClient.METHOD_POST, body)
 	if err != OK:
@@ -111,6 +112,7 @@ func _note_activity() -> void:
 
 func _start_watchdog(timeout: float = CHAT_WATCHDOG_TIMEOUT) -> void:
 	_watchdog_id += 1
+	_watchdog_timeout = timeout
 	var my_id := _watchdog_id
 	_countdown_loop(my_id, timeout)
 
@@ -136,8 +138,8 @@ func _countdown_loop(my_id: int, total: float = CHAT_WATCHDOG_TIMEOUT) -> void:
 func _on_watchdog() -> void:
 	if not _active:
 		return
-	_logger.warn("Watchdog timeout — 25s 内无任何数据")
-	stream_error.emit("Watchdog: 25 秒内未收到任何响应数据。\n" +
+	_logger.warn("Watchdog timeout — %.0fs 内无任何数据" % _watchdog_timeout)
+	stream_error.emit("Watchdog: %.0f 秒内未收到任何响应数据。\n" % _watchdog_timeout +
 		"  • AI 可能在处理大量数据 — 试试 Compact 或简化请求\n" +
 		"  • 网络或 API 问题 — 检查 Settings 里的 Base URL 和 API Key")
 	# 主动 cancel
@@ -260,6 +262,7 @@ func _parse_sse(body: PackedByteArray) -> void:
 		if delta.has("tool_calls"):
 			for tc in delta.get("tool_calls", []):
 				_accumulate_tool_call_chunk(tc)
+				_note_activity()  # tool_calls data also resets watchdog
 
 
 ## Accumulate a streaming tool_calls chunk into _accumulated_tool_calls[index].
@@ -280,17 +283,70 @@ func _accumulate_tool_call_chunk(tc: Dictionary) -> void:
 
 
 func _build_request_body(messages: Array, tools: Array, stream: bool) -> String:
+	# Convert messages with images to multimodal format.
+	# Images can be res:// paths (PNG files) — the client reads and base64-encodes them.
+	var processed: Array = []
+	for msg in messages:
+		var images: Array = msg.get("images", [])
+		if images.is_empty():
+			processed.append(msg)
+			continue
+
+		var content_raw = msg.get("content", null)
+		var text: String = str(content_raw) if content_raw != null else ""
+		var parts: Array = [{"type": "text", "text": text}]
+
+		for img in images:
+			var img_str: String = str(img)
+			# If it's a res:// path, read the file and encode to base64 data URI
+			if img_str.begins_with("res://"):
+				var uri := _file_to_data_uri(img_str)
+				if not uri.is_empty():
+					parts.append({"type": "image_url", "image_url": {"url": uri}})
+			elif img_str.begins_with("data:"):
+				parts.append({"type": "image_url", "image_url": {"url": img_str}})
+
+		processed.append({"role": msg.get("role", "user"), "content": parts})
+
 	var body := {
 		"model": _config.get_model(),
-		"messages": messages,
+		"messages": processed,
 		"temperature": _config.get_temperature(),
-		"max_tokens": _config.get_max_tokens() * 1000,  # 配置存 K tokens，API 要原始值
+		"max_tokens": _config.get_max_tokens() * 1000,
 		"stream": stream,
 	}
 	if not tools.is_empty():
-		body["tools"] = tools
+		# Auto-compress descriptions: first sentence only — cuts ~40% request size
+		var brief_tools: Array = []
+		for t in tools:
+			var bt := t.duplicate()
+			if t.has("description_brief") and not t.get("description_brief", "").is_empty():
+				bt["description"] = t.get("description_brief")
+			else:
+				var desc: String = t.get("description", "")
+				var dot := desc.find(". ")
+				if dot > 0 and dot < 150:
+					bt["description"] = desc.substr(0, dot + 1)  # first sentence
+				elif desc.length() > 150:
+					bt["description"] = desc.substr(0, 150) + "…"
+			bt.erase("description_brief")
+			brief_tools.append(bt)
+		body["tools"] = brief_tools
 		body["tool_choice"] = "auto"
 	return JSON.stringify(body)
+
+
+## Read a PNG file at res:// path and convert to data:image/png;base64,... URI.
+func _file_to_data_uri(path: String) -> String:
+	if not FileAccess.file_exists(path):
+		_logger.warn("Image not found: " + path)
+		return ""
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var data := f.get_buffer(f.get_length())
+	f.close()
+	return "data:image/png;base64," + Marshalls.raw_to_base64(data)
 
 
 func _normalize_url(base: String) -> String:

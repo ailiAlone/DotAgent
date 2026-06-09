@@ -410,25 +410,64 @@ func _tool_check_script_syntax(args: Dictionary) -> Dictionary:
 
 
 
-## Validate GDScript syntax by compiling a fresh GDScript instance.
-## Uses resource_path + reload() to force recompilation, bypassing resource cache.
-## Returns "" if OK, otherwise the error description.
+## Validate GDScript syntax. Fast path: GDScript.new() + reload() from temp file.
+## On failure, falls back to headless subprocess for line-level error messages.
+## Returns "" if OK, otherwise the error description with line numbers.
 func _validate_gdscript(path: String) -> String:
 	if not FileAccess.file_exists(path):
 		return "File not found"
-	# 读取文件内容到内存，用 source_code 编译（而非设 resource_path 走缓存）
-	# resource_path + reload() 会从 Godot 资源缓存加载已编译版本，检测不到新写入的语法错误
+
+	# Fast path: compile from source directly (bypasses Godot resource cache)
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return "Cannot read file"
 	var source := f.get_as_text()
 	f.close()
+
 	var script := GDScript.new()
 	script.source_code = source
 	var err := script.reload()
-	if err != OK:
-		return error_string(err)
-	return ""
+
+	if err == OK:
+		return ""
+
+	# reload() only returns error codes (e.g. "Parse error") — no line numbers.
+	# Fall back to headless subprocess for detailed line-level error output.
+	var detail := _subprocess_compile_check(path)
+	if not detail.is_empty():
+		return detail
+	return error_string(err)
+
+
+## Run Godot --headless --script to compile a script and capture line-level errors.
+## Returns empty string on success, or the extracted error lines.
+func _subprocess_compile_check(path: String) -> String:
+	var godot_exe: String = OS.get_executable_path()
+	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
+		return ""
+
+	var project_path: String = ProjectSettings.globalize_path("res://")
+	var script_abs: String = ProjectSettings.globalize_path(path)
+
+	var output: Array = []
+	var exit_code := OS.execute(godot_exe, [
+		"--headless", "--path", project_path,
+		"--script", script_abs, "--quit-after", "1",
+	], output, true, false)
+
+	var full := "\n".join(output)
+	var errors := _extract_error_lines(full)
+
+	if errors.is_empty() and exit_code != 0:
+		var preview := full.strip_edges()
+		if preview.length() > 1200:
+			preview = preview.substr(0, 1200) + "\n... (truncated)"
+		return "Compilation failed (exit %d). Output:\n%s" % [exit_code, preview]
+
+	if errors.is_empty():
+		return ""
+
+	return "\n".join(errors)
 
 
 

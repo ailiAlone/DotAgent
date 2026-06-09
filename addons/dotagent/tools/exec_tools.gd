@@ -10,6 +10,9 @@ extends "res://addons/dotagent/core/tool_base.gd"
 ## - reload_project       (危险)
 ## - get_editor_selection
 ## - get_node_type_info
+## - read_editor_output
+## - screenshot_editor (2d/3d)
+## - screenshot_runtime (subprocess)
 
 
 func get_tool_definitions() -> Array:
@@ -122,16 +125,55 @@ func get_tool_definitions() -> Array:
 			"dangerous": false,
 		},
 		{
-			"name": "open_godot_docs",
-			"description": "Open Godot Engine documentation in the default browser. Pass a class name (e.g. 'CharacterBody2D'), method (e.g. 'move_and_slide'), or free-text query. Opens the matching docs page or search results. Use when you need to look up API details, method signatures, or best practices.",
+			"name": "focus_editor_view",
+			"description": "Switch the editor's main viewport between 2D, 3D, Script, or AssetLib. Use this to show the developer which scene you're working on.\n\nBest practice: call this FIRST when you start editing a scene — focus_editor_view('2d') for 2D scenes, focus_editor_view('3d') for 3D scenes. Also use before screenshot_editor to ensure the right viewport is active.\n\nExample: focus_editor_view('2d')",
 			"parameters": {
 				"type": "object",
 				"properties": {
-					"query": {"type": "string", "description": "Class name, method name, or search term. E.g. 'CharacterBody2D', 'move_and_slide', 'Tween', 'signals'"},
+					"view": {"type": "string", "description": "'2d', '3d', 'script', or 'assetlib'"},
 				},
-				"required": ["query"],
+				"required": ["view"],
 			},
-			"method_name": "_tool_open_godot_docs",
+			"method_name": "_tool_focus_editor_view",
+			"dangerous": false,
+		},
+		{
+			"name": "screenshot_editor",
+			"description": "Capture a screenshot of the editor's 2D or 3D viewport. Instant. Use focus_editor_view first to switch to the right view.\n\nSaves to res://.dotagent_screenshots/2d/ or res://.dotagent_screenshots/3d/ with timestamp filename.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"viewport": {"type": "string", "description": "'2d' or '3d' — which viewport to capture"},
+				},
+				"required": ["viewport"],
+			},
+			"method_name": "_tool_screenshot_editor",
+			"dangerous": false,
+		},
+		{
+			"name": "screenshot_runtime",
+			"description": "Run a scene in a subprocess and capture its rendered output (~2s). Saves to res://.dotagent_screenshots/runtime/ with timestamp filename.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"scene_path": {"type": "string", "description": "Scene to run. Omit to use the currently edited scene."},
+				},
+			},
+			"method_name": "_tool_screenshot_runtime",
+			"dangerous": false,
+		},
+		{
+			"name": "analyze_image",
+			"description": "Send a screenshot to a vision model (e.g. MiniMax-M3) for visual analysis. The image is attached to the next LLM request automatically.\n\nWorkflow: screenshot_editor → analyze_image(path, question) → model replies with visual feedback.\n\nExample: analyze_image(path='res://.dotagent_screenshots/2d/2026-06-10_00-00-00.png', question='Check button alignment and color')",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Path to the PNG screenshot"},
+					"question": {"type": "string", "description": "Question about the image for the vision model"},
+				},
+				"required": ["path", "question"],
+			},
+			"method_name": "_tool_analyze_image",
 			"dangerous": false,
 		},
 	]
@@ -149,7 +191,10 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return _tool_run_scene_capture(args)
 		"_tool_read_editor_output": return _tool_read_editor_output(args)
-		"_tool_open_godot_docs": return _tool_open_godot_docs(args)
+		"_tool_focus_editor_view": return _tool_focus_editor_view(args)
+		"_tool_screenshot_editor": return _tool_screenshot_editor(args)
+		"_tool_screenshot_runtime": return _tool_screenshot_runtime(args)
+		"_tool_analyze_image": return _tool_analyze_image(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -338,23 +383,6 @@ func _tool_get_node_type_info(args: Dictionary) -> Dictionary:
 
 # ============ Helpers ============
 
-## Extract error lines from Godot subprocess stdout/stderr.
-## Shared by _tool_run_scene_capture and _get_compile_error_via_subprocess.
-func _extract_error_lines(text: String) -> Array:
-	var out: Array = []
-	for line in text.split("\n"):
-		var s := line.strip_edges()
-		if s.is_empty():
-			continue
-		var lo := s.to_lower()
-		if s.begins_with("ERROR:") or s.begins_with("SCRIPT ERROR:") \
-				or s.begins_with("Parse Error:") or s.begins_with("USER ERROR:") \
-				or s.contains("push_error(") or s.contains("push_critical(") \
-				or (s.contains(".gd:") and (lo.contains("error") or lo.contains("parse"))):
-			out.append(s)
-	return out
-
-
 func _get_compile_error_via_subprocess(script_src: String) -> String:
 	# GDScript 4.x 无公开 API 获取编译错误文本。
 	# 策略：写到临时文件，用 headless Godot 子进程加载它，捕获 stderr 中的错误信息。
@@ -461,26 +489,169 @@ func _tool_read_editor_output(args: Dictionary) -> Dictionary:
 	return _ok(EditorLogBuffer.get_recent(max_lines))
 
 
-## 在默认浏览器中打开 Godot 文档
-func _tool_open_godot_docs(args: Dictionary) -> Dictionary:
-	var query: String = args.get("query", "")
-	if query.is_empty():
-		return _err("query is required")
+## Switch the editor's main viewport to 2D, 3D, Script, or AssetLib.
+func _tool_focus_editor_view(args: Dictionary) -> Dictionary:
+	var view: String = args.get("view", "").to_lower()
+	if view.is_empty():
+		return _err("view is required: '2d', '3d', 'script', or 'assetlib'")
 
-	var url: String
-	var version := "stable"  # Godot 4 的文档路径
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
 
-	# 检查是否是已知的类名——直接跳转到类参考页
-	var lower_q := query.to_lower().replace(" ", "_")
-	if ClassDB.class_exists(query):
-		url = "https://docs.godotengine.org/en/%s/classes/class_%s.html" % [version, lower_q]
-	else:
-		# 搜索页
-		var encoded := query.uri_encode()
-		url = "https://docs.godotengine.org/en/%s/search.html?q=%s" % [version, encoded]
+	var screen_name: String
+	match view:
+		"2d": screen_name = "2D"
+		"3d": screen_name = "3D"
+		"script": screen_name = "Script"
+		"assetlib": screen_name = "AssetLib"
+		_: return _err("Unknown view: '%s'. Use '2d', '3d', 'script', or 'assetlib'." % view)
 
-	var err := OS.shell_open(url)
+	if not ei.has_method("set_main_screen_editor"):
+		return _err("EditorInterface.set_main_screen_editor not available in this Godot version")
+	ei.set_main_screen_editor(screen_name)
+	return _ok("Switched editor view to: " + screen_name)
+
+
+## Capture a screenshot of the editor's 2D or 3D viewport.
+func _tool_screenshot_editor(args: Dictionary) -> Dictionary:
+	var vp: String = args.get("viewport", "").to_lower()
+	if vp != "2d" and vp != "3d":
+		return _err("viewport must be '2d' or '3d'")
+
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
+
+	var viewport: Viewport = null
+	if vp == "2d" and ei.has_method("get_editor_viewport_2d"):
+		viewport = ei.get_editor_viewport_2d()
+	elif vp == "3d" and ei.has_method("get_editor_viewport_3d"):
+		viewport = ei.get_editor_viewport_3d()
+
+	if viewport == null:
+		return _err("Could not access %s editor viewport. Try focus_editor_view('%s') first, then retry." % [vp, vp])
+
+	var img: Image = viewport.get_texture().get_image()
+	if img == null:
+		return _err("Viewport returned no image — it may not have rendered yet. Try again.")
+
+	var out_dir := "res://.dotagent_screenshots/" + vp
+	_ensure_dir(out_dir)
+	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
+	var out_path := out_dir.path_join(timestamp + ".png")
+	var err := img.save_png(out_path)
 	if err != OK:
-		return _err("Failed to open browser: " + error_string(err))
+		return _err("Failed to save screenshot: " + error_string(err))
 
-	return _ok("Opened docs for '%s': %s" % [query, url])
+	var size := img.get_size()
+	var file := FileAccess.open(out_path, FileAccess.READ)
+	var file_size := 0
+	if file:
+		file_size = file.get_length()
+		file.close()
+
+	return _ok("📸 Editor %s screenshot: %s (%dx%d, %d bytes)" % [vp, out_path, size.x, size.y, file_size])
+
+
+## Run a scene in a subprocess and capture its rendered output.
+func _tool_screenshot_runtime(args: Dictionary) -> Dictionary:
+	var scene_path: String = args.get("scene_path", "")
+	if scene_path.is_empty():
+		var ei = _ei()
+		if ei:
+			var root = ei.get_edited_scene_root()
+			if root:
+				scene_path = root.scene_file_path
+	if scene_path.is_empty():
+		return _err("scene_path is required (or open a scene first)")
+	if not FileAccess.file_exists(scene_path):
+		return _err("Scene not found: " + scene_path)
+
+	var godot_exe: String = OS.get_executable_path()
+	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
+		return _err("Godot executable not found")
+
+	# Temp runner script: loads scene, waits for render, captures viewport, quits
+	var runner_path := "res://.dotagent_screenshot_runner.gd"
+	var out_dir := "res://.dotagent_screenshots/runtime"
+	_ensure_dir(out_dir)
+	var runner_src := """extends SceneTree
+
+func _init():
+	var scene := load("%s") as PackedScene
+	if scene == null:
+		print("Failed to load scene")
+		quit(1)
+		return
+	var root := scene.instantiate()
+	self.root.add_child(root)
+
+	await process_frame
+	await process_frame
+	await process_frame
+
+	var img := get_root().get_texture().get_image()
+	if img:
+		img.save_png("%s")
+	quit()
+""" % [scene_path, out_dir.path_join("_temp.png")]
+	var rf := FileAccess.open(runner_path, FileAccess.WRITE)
+	if rf == null:
+		return _err("Cannot write runner script")
+	rf.store_string(runner_src)
+	rf.close()
+
+	var project_path: String = ProjectSettings.globalize_path("res://")
+	var output: Array = []
+	# NOT --headless — needs real GPU rendering for viewport capture
+	var exit_code := OS.execute(godot_exe, ["--path", project_path, "--script", ProjectSettings.globalize_path(runner_path)], output, true, false)
+
+	# Clean up runner
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(runner_path))
+
+	var temp_path := out_dir.path_join("_temp.png")
+	if not FileAccess.file_exists(temp_path):
+		var stderr := "\n".join(output).strip_edges()
+		if stderr.length() > 500:
+			stderr = stderr.substr(0, 500)
+		return _err("Runtime screenshot failed (exit=%d). No image produced.\nStderr: %s" % [exit_code, stderr])
+
+	# Rename with timestamp
+	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
+	var final_path := out_dir.path_join(timestamp + ".png")
+	DirAccess.rename_absolute(ProjectSettings.globalize_path(temp_path), ProjectSettings.globalize_path(final_path))
+
+	var img := Image.new()
+	img.load(final_path)
+	var size := img.get_size()
+	var file := FileAccess.open(final_path, FileAccess.READ)
+	var file_size := 0
+	if file:
+		file_size = file.get_length()
+		file.close()
+
+	return _ok("📸 Runtime screenshot: %s (%dx%d, %d bytes)" % [final_path, size.x, size.y, file_size])
+
+
+## Queue an image for vision analysis in the next LLM call.
+## Writes a pending-image marker that the controller picks up and injects
+## as a user message with image attachment.
+func _tool_analyze_image(args: Dictionary) -> Dictionary:
+	var path: String = args.get("path", "")
+	var question: String = args.get("question", "")
+	if path.is_empty() or question.is_empty():
+		return _err("path and question are required")
+	if not FileAccess.file_exists(path):
+		return _err("Image not found: " + path)
+
+	# Write pending-image marker for the controller to pick up
+	var marker := {
+		"path": path,
+		"question": question,
+	}
+	var f := FileAccess.open("res://.dotagent_pending_image.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify(marker))
+	f.close()
+
+	return _ok("📸 Image queued for analysis: %s\nQuestion: %s\n\nThe vision model will analyze this in the next response." % [path, question])

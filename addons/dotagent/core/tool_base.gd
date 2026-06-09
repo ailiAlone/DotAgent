@@ -77,19 +77,21 @@ func _walk_dir(dir: String, out: Array, extensions: Array, pattern: String = "")
 	d.list_dir_end()
 
 
-## 确保文件路径的所有父目录都存在
-## 处理 res:// 路径，跳过根目录（res:/ / res://）避免 "Could not create directory" 错误
+## 确保目录存在（递归创建）
+## 如果传的是文件路径，自动取目录部分
+## 跳过根目录 res:/ res:// 避免 "Could not create directory" 错误
 func _ensure_dir(path: String) -> void:
-	var last_slash := path.rfind("/")
-	if last_slash <= 0:
+	var dir_path := path
+	# 如果是文件路径（有扩展名），取目录部分
+	var last_dot := dir_path.rfind(".")
+	if last_dot > dir_path.rfind("/"):
+		dir_path = dir_path.get_base_dir()
+	# 如果是根目录，跳过
+	var trimmed := dir_path.strip_edges()
+	if trimmed == "res:" or trimmed == "res:/" or trimmed == "res://" or trimmed == "res:///":
 		return
-	var dir := path.substr(0, last_slash)
-	# 如果目录部分只是根路径（文件在项目根目录），无需创建目录
-	var trimmed := dir.strip_edges()
-	if trimmed == "res:" or trimmed == "res:/" or trimmed == "res://":
-		return
-	if not DirAccess.dir_exists_absolute(dir):
-		DirAccess.make_dir_recursive_absolute(dir)
+	if not DirAccess.dir_exists_absolute(dir_path):
+		DirAccess.make_dir_recursive_absolute(dir_path)
 
 
 ## 将 JSON 基本类型自动转换为 Godot 原生类型
@@ -159,3 +161,20 @@ func _get_backup() -> BackupManager:
 	if _backup == null:
 		_backup = BackupManager.new()
 	return _backup
+
+
+## Extract error lines from Godot subprocess stdout/stderr.
+## Used by script_tools (syntax check) and exec_tools (scene capture).
+func _extract_error_lines(text: String) -> Array:
+	var out: Array = []
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.is_empty():
+			continue
+		var lo := s.to_lower()
+		if s.begins_with("ERROR:") or s.begins_with("SCRIPT ERROR:") \
+				or s.begins_with("Parse Error:") or s.begins_with("USER ERROR:") \
+				or s.contains("push_error(") or s.contains("push_critical(") \
+				or (s.contains(".gd:") and (lo.contains("error") or lo.contains("parse"))):
+			out.append(s)
+	return out

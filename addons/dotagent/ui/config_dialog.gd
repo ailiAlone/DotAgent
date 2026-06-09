@@ -5,6 +5,7 @@ signal config_saved
 
 @onready var base_url_field: LineEdit = %BaseUrlField
 @onready var api_key_field: LineEdit = %ApiKeyField
+@onready var vision_checkbox: CheckBox = %VisionCheckBox
 @onready var model_field: LineEdit = %ModelField
 @onready var temp_field: SpinBox = %TempField
 @onready var context_limit_field: SpinBox = %ContextLimitField
@@ -31,7 +32,16 @@ func _ready() -> void:
 
 func _load_values() -> void:
 	base_url_field.text = _config.get_base_url()
-	api_key_field.text = _config.get_api_key()
+	# API key 只从环境变量 DOTAGENT_API_KEY 读取，不显示内容
+	var key := _config.get_api_key()
+	api_key_field.editable = false
+	if key.is_empty():
+		api_key_field.text = ""
+		api_key_field.placeholder_text = "setx DOTAGENT_API_KEY \"ey-...\" then restart Godot"
+	else:
+		api_key_field.text = "Loaded from DOTAGENT_API_KEY"
+		api_key_field.placeholder_text = ""
+	vision_checkbox.button_pressed = _config.get_vision_enabled()
 	model_field.text = _config.get_model()
 	temp_field.value = _config.get_temperature()
 	context_limit_field.value = _config.get_context_limit()
@@ -69,11 +79,13 @@ func _set_label(form: Node, name: String, text: String) -> void:
 func _on_save() -> void:
 	var err := _config.save(
 		base_url_field.text.strip_edges(),
-		api_key_field.text,
+		_config.get_api_key(),
 		model_field.text.strip_edges(),
 		float(temp_field.value),
 		int(context_limit_field.value),
 		"en" if language_field.selected == 1 else "zh",
+		_config.get_max_tokens_k(),
+		vision_checkbox.button_pressed,
 	)
 	if err != OK:
 		_set_status("❌ Save failed: " + error_string(err), true)
@@ -119,7 +131,7 @@ func _test_connection() -> void:
 		"max_tokens": 1,
 		"stream": false,
 	})
-	http.request(base + "/chat/completions", ["Content-Type: application/json", "Authorization: Bearer " + api_key_field.text], HTTPClient.METHOD_POST, body)
+	http.request(base + "/chat/completions", ["Content-Type: application/json", "Authorization: Bearer " + _config.get_api_key()], HTTPClient.METHOD_POST, body)
 
 
 func _on_test() -> void:
@@ -131,11 +143,13 @@ func _on_test() -> void:
 	_set_status(Locale.t("Testing..."), false)
 	_config.save(
 		base_url_field.text.strip_edges(),
-		api_key_field.text,
+		_config.get_api_key(),
 		model_field.text.strip_edges(),
 		float(temp_field.value),
 		int(context_limit_field.value),
 		"en" if language_field.selected == 1 else "zh",
+		_config.get_max_tokens_k(),
+		vision_checkbox.button_pressed,
 	)
 	_test_connection()
 	while _testing:
