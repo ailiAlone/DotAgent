@@ -10,21 +10,11 @@ config_version=5
 
 [application]
 
-config/name="DotAgent-Sandbox-Test"
-config/description="\"Tool test in progress\""
-config/version="\"1.0.0-test\""
-run/main_scene="res://main.tscn"
+config/name="DotAgent-Full-Tool-Test"
+config/version="1.0.0"
+run/main_scene="res://test_scene.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
-
-[display]
-
-window/size/viewport_width=1280.0
-window/size/viewport_height=720.0
 
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/dotagent/plugin.cfg")
-
-[rendering]
-
-environment/defaults/default_clear_color=Color(0.02, 0.02, 0.06, 1)

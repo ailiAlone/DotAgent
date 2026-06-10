@@ -217,6 +217,9 @@ func _on_round_complete(content: String, tool_calls: Array, tool_results: Array)
 	# 一轮结束，重置 think 框引用（框本身留在消息列表中作为历史记录）
 	_think_section = null
 	_think_label = null
+	# 强制恢复可见（think 解析可能设了 visible=false）
+	if _stream_node and is_instance_valid(_stream_node):
+		_stream_node.visible = true
 	_finalize_stream_node(_stream_node, tool_calls, tool_results)
 	_stream_node = null
 	_stream_content = ""

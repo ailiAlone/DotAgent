@@ -1,54 +1,24 @@
 @tool
-extends "res://addons/dotagent/core/tool_base.gd"
-## 项目工具集 - 文件系统、项目设置、配置
+extends "res://addons/dotagent/tools/tool_base.gd"
+## 项目工具集 - 项目设置、配置、记忆、技能
 ##
-## 工具:
-## - list_files
-## - list_scenes
-## - list_resources
+## Tools:
 ## - get_project_info
 ## - get_project_setting
 ## - set_project_setting
-## - read_resource_as_text
 ## - remember
 ## - recall
 ## - export_session
-## - write_file
-## - read_file_tail
-## - read_multiple_files
+## - get_input_actions
+## - add_input_action
+## - list_skills
+## - create_skill
 
 
 
 
 func get_tool_definitions() -> Array:
 	return [
-		{
-			"name": "list_files",
-			"description": "List files under a directory. Returns array of res:// paths.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"directory": {"type": "string", "description": "Directory to list (default 'res://')", "default": "res://"},
-					"pattern": {"type": "string", "description": "Optional filter, e.g. '.tscn' or '.gd'"},
-				},
-			},
-			"method_name": "_tool_list_files",
-			"dangerous": false,
-		},
-		{
-			"name": "list_scenes",
-			"description": "List all .tscn scene files in the project.",
-			"parameters": {"type": "object", "properties": {}},
-			"method_name": "_tool_list_scenes",
-			"dangerous": false,
-		},
-		{
-			"name": "list_resources",
-			"description": "List all custom resource files (.tres, .res) in the project.",
-			"parameters": {"type": "object", "properties": {}},
-			"method_name": "_tool_list_resources",
-			"dangerous": false,
-		},
 		{
 			"name": "get_project_info",
 			"description": "Get project name, version, main scene, autoloads, and other top-level info.",
@@ -84,20 +54,6 @@ func get_tool_definitions() -> Array:
 			"dangerous": false,
 		},
 		{
-			"name": "read_resource_as_text",
-			"description": "Read any text-based resource file (.tscn / .tres / .gd / .cs / .json / .cfg / .godot) and return its raw content. Use this to inspect scene structure, project files, or any text file under res://. Default max_chars is conservative (2000) to avoid blowing up LLM context — bump it explicitly if you need more.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "res:// path to the file"},
-					"max_chars": {"type": "integer", "description": "Max chars to return (default 2000, was 8000 — kept low to protect LLM context)", "default": 2000},
-				},
-				"required": ["path"],
-			},
-			"method_name": "_tool_read_resource_as_text",
-			"dangerous": false,
-		},
-		{
 			"name": "remember",
 			"description": "Save a fact or convention to project memory (.dotagent_memory.md). Use for things like 'this project uses snake_case' or 'don't modify main_menu.tscn'.",
 			"parameters": {
@@ -125,77 +81,6 @@ func get_tool_definitions() -> Array:
 			"dangerous": false,
 		},
 		{
-			"name": "write_file",
-			"description": "Write a text file (.md, .txt, .json, .cfg, .csv, etc). Creates parent directories if needed.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "res:// path, e.g. 'res://docs/notes.md'"},
-					"content": {"type": "string", "description": "File content to write"},
-				},
-				"required": ["path", "content"],
-			},
-			"method_name": "_tool_write_file",
-			"dangerous": false,
-		},
-		{
-			"name": "read_file_tail",
-			"description": "Read the last N characters or lines of a file. Use for reading log tails, conversation endings, or large file ends without loading the whole file.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "res:// path"},
-					"max_chars": {"type": "integer", "description": "Max chars from end (default 3000)", "default": 3000},
-					"max_lines": {"type": "integer", "description": "Max lines from end (default 0 = disabled)", "default": 0},
-				},
-				"required": ["path"],
-			},
-			"method_name": "_tool_read_file_tail",
-			"dangerous": false,
-		},
-		{
-			"name": "read_multiple_files",
-			"description": "Read multiple files at once. Much faster than calling read_script/read_resource_as_text one by one. Returns JSON {path: content}.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"paths": {"type": "array", "items": {"type": "string"}, "description": "Array of res:// paths"},
-					"max_chars_per_file": {"type": "integer", "description": "Max chars per file (default 2500)", "default": 2500},
-				},
-				"required": ["paths"],
-			},
-			"method_name": "_tool_read_multiple_files",
-			"dangerous": false,
-		},
-		{
-			"name": "preview_backup",
-			"description": "Preview recent backups for a file. Shows timestamp + first 400 chars of each backup. Use before undo_last to see what you're restoring. Returns up to 3 most recent backups.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "Target file path, e.g. 'res://main_menu.tscn' or 'res://player.gd'"},
-				},
-				"required": ["path"],
-			},
-			"method_name": "_tool_preview_backup",
-			"dangerous": false,
-		},
-		{
-			"name": "create_resource",
-			"description": "Create a .tres or .res resource file of any Resource type (StyleBoxFlat, PlaceholderTexture2D, ShaderMaterial, Theme, Curve, etc). Set initial properties via the properties dict. Use for UI themes, placeholder textures, materials — anything that needs a .tres file.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "Path, e.g. 'res://ui/red_panel.tres'"},
-					"type": {"type": "string", "description": "Resource class name, e.g. 'StyleBoxFlat', 'PlaceholderTexture2D', 'ShaderMaterial'"},
-					"properties": {"type": "object", "description": "Initial properties as {name: value} dict. Values are parsed as JSON."},
-				},
-				"required": ["path", "type"],
-			},
-			"method_name": "_tool_create_resource",
-			"dangerous": false,
-		},
-		{
 			"name": "get_input_actions",
 			"description": "List all input actions defined in the project's Input Map (project.godot). Returns action names and their bound events (key, mouse button, joypad).",
 			"parameters": {"type": "object", "properties": {}},
@@ -215,13 +100,6 @@ func get_tool_definitions() -> Array:
 			},
 			"method_name": "_tool_add_input_action",
 			"dangerous": false,
-		},
-		{
-			"name": "cleanup_backups",
-			"description": "Delete backup directories exceeding the retention limit (keeps 10 newest). Use to silence 'Failed parse script' noise from the GDScript Language Server scanning old broken backups.",
-			"parameters": {"type": "object", "properties": {}},
-			"method_name": "_tool_cleanup_backups",
-			"dangerous": true,
 		},
 		{
 			"name": "list_skills",
@@ -245,70 +123,25 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_create_skill",
 			"dangerous": false,
 		},
-		{
-			"name": "peek_scene",
-			"description": "Lightweight scene reader — returns only the node tree structure (names, types, parents, scripts) WITHOUT property values. Much smaller than read_resource_as_text of a .tscn (~500 chars vs 10,000+). Use this instead of read_resource_as_text to understand scene structure.\n\nParameters:\n- path: res:// path to .tscn file\n- max_depth: 0=full tree, 1=root only, 2=root+direct children, etc. (default 0)",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "Path to .tscn file"},
-					"max_depth": {"type": "integer", "description": "Max tree depth (0=unlimited, default=0)", "default": 0},
-				},
-				"required": ["path"],
-			},
-			"method_name": "_tool_peek_scene",
-			"dangerous": false,
-		},
 	]
 
 
 func call_method(method_name: String, args: Dictionary) -> Dictionary:
 	match method_name:
-		"_tool_list_files": return _tool_list_files(args)
-		"_tool_list_scenes": return _tool_list_scenes(args)
-		"_tool_list_resources": return _tool_list_resources(args)
 		"_tool_get_project_info": return _tool_get_project_info(args)
 		"_tool_get_project_setting": return _tool_get_project_setting(args)
 		"_tool_set_project_setting": return _tool_set_project_setting(args)
-		"_tool_read_resource_as_text": return _tool_read_resource_as_text(args)
 		"_tool_remember": return _tool_remember(args)
 		"_tool_recall": return _tool_recall(args)
 		"_tool_export_session": return _tool_export_session(args)
-		"_tool_write_file": return _tool_write_file(args)
-		"_tool_read_file_tail": return _tool_read_file_tail(args)
-		"_tool_read_multiple_files": return _tool_read_multiple_files(args)
-		"_tool_preview_backup": return _tool_preview_backup(args)
-		"_tool_create_resource": return _tool_create_resource(args)
 		"_tool_get_input_actions": return _tool_get_input_actions(args)
 		"_tool_add_input_action": return _tool_add_input_action(args)
-		"_tool_cleanup_backups": return _tool_cleanup_backups(args)
 		"_tool_list_skills": return _tool_list_skills(args)
 		"_tool_create_skill": return _tool_create_skill(args)
-		"_tool_peek_scene": return _tool_peek_scene(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
 # ============ 工具实现 ============
-
-func _tool_list_files(args: Dictionary) -> Dictionary:
-	var dir: String = args.get("directory", "res://")
-	var pattern: String = args.get("pattern", "")
-	var paths: Array = []
-	_walk_dir(dir, paths, [], pattern)
-	return _ok(JSON.stringify(paths, "  "))
-
-
-func _tool_list_scenes(args: Dictionary) -> Dictionary:
-	var paths: Array = []
-	_walk_dir("res://", paths, [".tscn"], "")
-	return _ok(JSON.stringify(paths, "  "))
-
-
-func _tool_list_resources(args: Dictionary) -> Dictionary:
-	var paths: Array = []
-	_walk_dir("res://", paths, [".tres", ".res"], "")
-	return _ok(JSON.stringify(paths, "  "))
-
 
 func _tool_get_project_info(args: Dictionary) -> Dictionary:
 	var info := {
@@ -341,9 +174,14 @@ func _tool_set_project_setting(args: Dictionary) -> Dictionary:
 	var key: String = args.get("key", "")
 	if key.is_empty():
 		return _err("key is required")
-	if not ProjectSettings.has_setting(key):
-		return _err("Setting does not exist: " + key)
 	var value = _parse_setting_value(args.get("value"))
+	# 自定义 key：先 set 再 save，不要求 has_setting
+	if not ProjectSettings.has_setting(key):
+		ProjectSettings.set_setting(key, value)
+		var err := ProjectSettings.save()
+		if err != OK:
+			return _err("Failed to save custom setting: " + key)
+		return _ok("Registered and set %s = %s (saved to project.godot)" % [key, str(value)])
 	ProjectSettings.set_setting(key, value)
 	ProjectSettings.save()
 	return _ok("Set %s = %s (saved to project.godot)" % [key, str(value)])
@@ -382,27 +220,6 @@ func _parse_setting_value(raw):
 		return false
 	return s
 
-
-func _tool_read_resource_as_text(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	if path.is_empty():
-		return _err("path is required")
-	if not FileAccess.file_exists(path):
-		return _err("File not found: " + path)
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return _err("Cannot open: " + error_string(FileAccess.get_open_error()))
-	var content := f.get_as_text()
-	f.close()
-	var max_chars: int = int(args.get("max_chars", 2000))
-	var truncated := false
-	if content.length() > max_chars:
-		content = content.substr(0, max_chars) + "\n\n... (truncated, total %d chars)" % content.length()
-		truncated = true
-	return _ok(content)
-
-
-# project_tools 辅助方法已移至 ToolBase 基类
 
 const MEMORY_PATH := "res://.dotagent_memory.md"
 
@@ -464,121 +281,6 @@ func _tool_export_session(args: Dictionary) -> Dictionary:
 	return _ok("Exported to: " + dst)
 
 
-func _tool_write_file(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	var content: String = args.get("content", "")
-	if path.is_empty():
-		return _err("path is required")
-	# 备份旧内容
-	if FileAccess.file_exists(path):
-		_get_backup().backup(path)
-	# 确保目录存在
-	_ensure_dir(path)
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if f == null:
-		return _err("Cannot open file for writing: " + path)
-	f.store_string(content)
-	f.close()
-	# 不调 _refresh_filesystem() — 新建文件会触发 Godot 全局脚本重载，
-	# 重载会杀掉所有挂起的协程（包括 _run_react_loop），导致 session 被截断。
-	# 文件已落盘，编辑器稍后会自然发现。
-	return _ok("Wrote %d bytes to %s" % [content.length(), path])
-
-
-func _tool_read_file_tail(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	var max_chars: int = int(args.get("max_chars", 3000))
-	var max_lines: int = int(args.get("max_lines", 0))
-	if path.is_empty():
-		return _err("path is required")
-	if not FileAccess.file_exists(path):
-		return _err("File not found: " + path)
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return _err("Cannot open: " + path)
-	var full := f.get_as_text()
-	f.close()
-	if max_lines > 0:
-		var all_lines := full.split("\n")
-		var start := max(0, all_lines.size() - max_lines)
-		var tail_lines: Array = []
-		for i in range(start, all_lines.size()):
-			tail_lines.append(all_lines[i])
-		var result := "\n".join(tail_lines)
-		if result.length() > max_chars * 2:
-			result = result.substr(result.length() - max_chars * 2)
-		return _ok("[last %d lines]\n%s" % [tail_lines.size(), result])
-	else:
-		if full.length() <= max_chars:
-			return _ok(full)
-		var tail := full.substr(full.length() - max_chars)
-		return _ok("[last %d chars of %d]\n%s" % [tail.length(), full.length(), tail])
-
-
-func _tool_read_multiple_files(args: Dictionary) -> Dictionary:
-	var paths: Array = args.get("paths", [])
-	var max_chars_per_file: int = int(args.get("max_chars_per_file", 2500))
-	if paths.is_empty():
-		return _err("paths is required (array of res:// paths)")
-	var results := {}
-	var errors := []
-	for p in paths:
-		var path: String = str(p)
-		if not FileAccess.file_exists(path):
-			errors.append("Not found: " + path)
-			continue
-		var f := FileAccess.open(path, FileAccess.READ)
-		if f == null:
-			errors.append("Cannot read: " + path)
-			continue
-		var content := f.get_as_text()
-		f.close()
-		if content.length() > max_chars_per_file:
-			content = content.substr(0, max_chars_per_file) + "\n... [truncated, %d more chars]" % (content.length() - max_chars_per_file)
-		results[path] = content
-	var summary := "Read %d files" % results.size()
-	if not errors.is_empty():
-		summary += " (%d errors: %s)" % [errors.size(), ", ".join(errors)]
-	return _ok(summary + "\n\n" + JSON.stringify(results, "  "))
-
-
-## 创建 .tres / .res 资源文件
-func _tool_create_resource(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	var type: String = args.get("type", "")
-	var properties: Dictionary = args.get("properties", {})
-
-	if path.is_empty():
-		return _err("path is required")
-	if type.is_empty():
-		return _err("type is required (e.g. 'StyleBoxFlat', 'PlaceholderTexture2D')")
-	if not path.ends_with(".tres") and not path.ends_with(".res"):
-		return _err("path must end with .tres or .res")
-	if not ClassDB.class_exists(type):
-		return _err("Unknown class: " + type)
-	if not ClassDB.is_parent_class(type, "Resource"):
-		return _err(type + " is not a Resource type. Use a class that inherits from Resource.")
-	if FileAccess.file_exists(path):
-		return _err("File already exists: " + path + ". Use a different path or delete the existing file first.")
-
-	var res = ClassDB.instantiate(type)
-	if res == null:
-		return _err("Failed to instantiate: " + type + " (may not be directly instantiable)")
-
-	for key in properties.keys():
-		res.set(key, _parse_property_value(properties[key]))
-
-	_ensure_dir(path)
-	var err := ResourceSaver.save(res, path)
-	if err != OK:
-		return _err("Failed to save: " + error_string(err))
-
-	# 不调 _refresh_filesystem() — 新建 .tres 文件会触发 Godot 全局脚本重载，
-	# 重载会杀掉所有挂起的协程（包括 _run_react_loop），导致 session 被截断。
-	# 文件已落盘，编辑器稍后会自然发现。
-	return _ok("Created: " + path + " (" + type + ")")
-
-
 ## 列出所有 Input Map 动作
 func _tool_get_input_actions(args: Dictionary) -> Dictionary:
 	var actions: Array = InputMap.get_actions()
@@ -623,6 +325,7 @@ func _tool_add_input_action(args: Dictionary) -> Dictionary:
 		return _err("Action already exists: " + name + ". Use a different name.")
 
 	InputMap.add_action(name)
+	InputMap.action_set_deadzone(name, 0.5)  # 确保 action 完整注册
 
 	for ev_desc in events:
 		var ev_type: String = ev_desc.get("type", "")
@@ -642,69 +345,21 @@ func _tool_add_input_action(args: Dictionary) -> Dictionary:
 			var ev := InputEventMouseButton.new()
 			ev.button_index = btn
 			InputMap.action_add_event(name, ev)
+		elif ev_type == "joypad_button":
+			var btn: int = int(ev_desc.get("button", 0))
+			var ev := InputEventJoypadButton.new()
+			ev.button_index = btn
+			InputMap.action_add_event(name, ev)
+		elif ev_type == "joypad_axis":
+			var axis: int = int(ev_desc.get("axis", 0))
+			var ev := InputEventJoypadMotion.new()
+			ev.axis = axis
+			ev.axis_value = float(ev_desc.get("value", 1.0))
+			InputMap.action_add_event(name, ev)
 
 	ProjectSettings.save()
 	var count := InputMap.action_get_events(name).size()
 	return _ok("Added action '%s' with %d event(s). Saved to project.godot." % [name, count])
-
-
-## 手动清理旧备份目录
-func _tool_cleanup_backups(args: Dictionary) -> Dictionary:
-	var bm := _get_backup()
-	var before := bm.list_backups().size()
-	# 强制触发清理（内部会删掉超过 MAX_BACKUP_DIRS 的旧目录）
-	bm._cleanup_old()
-	var after := bm.list_backups().size()
-	return _ok("Backup cleanup: %d → %d directories" % [before, after])
-
-
-## 预览文件最近的备份（最多 3 个），返回时间戳 + 内容预览
-## 让 AI 在 undo_last 之前知道自己要恢复什么
-func _tool_preview_backup(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	if path.is_empty():
-		return _err("path is required")
-	if not path.begins_with("res://"):
-		return _err("path must start with res://")
-
-	var rel := path.trim_prefix("res://")
-	var bm := _get_backup()
-	var backup_dirs := bm.list_backups()
-	if backup_dirs.is_empty():
-		return _ok("(no backups found — backups are created automatically when write tools modify files)")
-
-	# 从最新往旧找，最多返回 3 个匹配的备份
-	var found: Array = []
-	for i in range(backup_dirs.size() - 1, -1, -1):
-		if found.size() >= 3:
-			break
-		var ts: String = backup_dirs[i]
-		var backup_file := "res://.dotagent_backups/" + ts + "/" + rel
-		if not FileAccess.file_exists(backup_file):
-			continue
-		var f := FileAccess.open(backup_file, FileAccess.READ)
-		if f == null:
-			continue
-		var content := f.get_as_text()
-		f.close()
-		var preview := content
-		if preview.length() > 400:
-			preview = preview.substr(0, 400) + "\n... [%d more chars]" % (content.length() - 400)
-		found.append({
-			"timestamp": ts,
-			"size": content.length(),
-			"preview": preview,
-		})
-
-	if found.is_empty():
-		return _ok("No backup found for: " + path + "\n(backups exist for other files — try undo_last if you modified a scene)")
-
-	var lines: Array = []
-	lines.append("%d backup(s) for %s:" % [found.size(), path])
-	for item in found:
-		lines.append("\n--- Backup @ %s (%d bytes) ---" % [item["timestamp"], item["size"]])
-		lines.append(item["preview"])
-	return _ok("\n".join(lines))
 
 
 ## List all available scene-type skills with their trigger keywords.
@@ -779,100 +434,4 @@ func _tool_create_skill(args: Dictionary) -> Dictionary:
 		lines.append(overlap_warning)
 		lines.append("\nMultiple skills with same triggers ALL get injected — they don't override each other. If they conflict, merge them into one skill.")
 	lines.append("\nCall list_skills to verify. Auto-injection available after session restart.")
-	return _ok("\n".join(lines))
-
-
-## Lightweight .tscn reader — returns only node tree structure, no property values.
-func _tool_peek_scene(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	var max_depth: int = int(args.get("max_depth", 0))
-	if path.is_empty():
-		return _err("path is required")
-	if not FileAccess.file_exists(path):
-		return _err("File not found: " + path)
-	if not path.ends_with(".tscn") and not path.ends_with(".scn"):
-		return _err("Only .tscn/.scn files supported")
-
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return _err("Cannot read file")
-	var text := f.get_as_text()
-	f.close()
-
-	# Parse node entries
-	var nodes: Array[Dictionary] = []
-	var node_re := RegEx.new()
-	node_re.compile('\\[node name="([^"]*)" type="([^"]*)"(?: parent="([^"]*)")?')
-	for m in node_re.search_all(text):
-		nodes.append({"name": m.get_string(1), "type": m.get_string(2), "parent": m.get_string(3)})
-
-	# Parse script assignments
-	var scripts: Dictionary = {}
-	var script_re := RegEx.new()
-	script_re.compile('script\\s*=\\s*ExtResource\\("([^"]*)"\\)')
-	# Map node→ExtResource ID
-	var node_res_id: Dictionary = {}
-	for line in text.split("\n"):
-		if '[node name="' in line and "script" in line:
-			var nm := line.substr(line.find('name="') + 6)
-			nm = nm.substr(0, nm.find('"'))
-			for m2 in script_re.search_all(line):
-				node_res_id[nm] = m2.get_string(1)
-		# Direct script="res://..." format
-		if '[node name="' in line and 'script="res://' in line:
-			var nm := line.substr(line.find('name="') + 6)
-			nm = nm.substr(0, nm.find('"'))
-			var sp := line.find('script="') + 8
-			var se := line.find('"', sp)
-			scripts[nm] = line.substr(sp, se - sp)
-
-	# Parse ExtResource mappings
-	var ext_res: Dictionary = {}
-	var res_re := RegEx.new()
-	res_re.compile('\\[ext_resource type="Script"[^\\]]*path="([^"]*)" id="([^"]*)"')
-	for m in res_re.search_all(text):
-		ext_res[m.get_string(2)] = m.get_string(1)
-	# Resolve
-	for node_name in node_res_id:
-		var rid: String = node_res_id[node_name]
-		if ext_res.has(rid):
-			scripts[node_name] = ext_res[rid]
-
-	# Build tree
-	if nodes.is_empty():
-		return _ok("(no nodes in %s)" % path)
-
-	var children: Dictionary = {}
-	for n in nodes:
-		var p := n.get("parent", "")
-		if p.is_empty(): p = "."
-		if not children.has(p):
-			children[p] = []
-		children[p].append(n)
-
-	var lines: Array = []
-	lines.append("%s (%d nodes):" % [path.get_file(), nodes.size()])
-
-	var _build: Callable
-	var _children := children
-	var _scripts := scripts
-	_build = func(node: Dictionary, depth: int) -> void:
-		if max_depth > 0 and depth > max_depth:
-			return
-		var indent := "  ".repeat(depth)
-		var name: String = node.get("name")
-		var type: String = node.get("type")
-		var st := ""
-		if _scripts.has(name):
-			st = " [%s]" % _scripts[name].get_file()
-		lines.append("%s%s (%s)%s" % [indent, name, type, st])
-		var cn := node.get("name")
-		if _children.has(cn):
-			for child in _children[cn]:
-				_build.call(child, depth + 1)
-
-	if children.has("."):
-		for node in children["."]:
-			_build.call(node, 0)
-
 	return _ok("\n".join(lines))

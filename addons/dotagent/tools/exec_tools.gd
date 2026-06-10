@@ -1,18 +1,20 @@
 @tool
-extends "res://addons/dotagent/core/tool_base.gd"
+extends "res://addons/dotagent/tools/tool_base.gd"
 ## 执行类工具 - 让 AI 真的"动手"
 ##
-## 工具:
-## - execute_gdscript     (危险 - eval 任意代码)
-## - call_node_method     (危险 - 在指定节点上调方法)
-## - run_current_scene    (危险 - F5)
+## Tools:
+## - execute_gdscript
+## - call_node_method
+## - open_scene
+## - run_current_scene
 ## - stop_running_scene
-## - reload_project       (危险)
+## - reload_project
 ## - get_editor_selection
+## - run_scene_capture
 ## - get_node_type_info
 ## - read_editor_output
-## - screenshot_editor (2d/3d)
-## - screenshot_runtime (subprocess)
+
+
 
 
 func get_tool_definitions() -> Array:
@@ -56,6 +58,20 @@ func get_tool_definitions() -> Array:
 				"required": ["path"],
 			},
 			"method_name": "_tool_open_scene",
+			"dangerous": false,
+		},
+		{
+			"name": "close_all_scenes",
+			"description": "Close all open scene tabs in the editor. Saves modified scenes first, then removes all tabs. Use before starting a new task to start from a clean slate.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_close_all_scenes",
+			"dangerous": false,
+		},
+		{
+			"name": "list_open_scenes",
+			"description": "List all currently open scene tabs in the editor. Returns array of res:// paths. Use to see what scenes are open before deciding which to close or switch to.",
+			"parameters": {"type": "object", "properties": {}},
+			"method_name": "_tool_list_open_scenes",
 			"dangerous": false,
 		},
 		{
@@ -124,58 +140,6 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_read_editor_output",
 			"dangerous": false,
 		},
-		{
-			"name": "focus_editor_view",
-			"description": "Switch the editor's main viewport between 2D, 3D, Script, or AssetLib. Use this to show the developer which scene you're working on.\n\nBest practice: call this FIRST when you start editing a scene — focus_editor_view('2d') for 2D scenes, focus_editor_view('3d') for 3D scenes. Also use before screenshot_editor to ensure the right viewport is active.\n\nExample: focus_editor_view('2d')",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"view": {"type": "string", "description": "'2d', '3d', 'script', or 'assetlib'"},
-				},
-				"required": ["view"],
-			},
-			"method_name": "_tool_focus_editor_view",
-			"dangerous": false,
-		},
-		{
-			"name": "screenshot_editor",
-			"description": "Capture a screenshot of the editor's 2D or 3D viewport. Instant. Use focus_editor_view first to switch to the right view.\n\nSaves to res://.dotagent_screenshots/2d/ or res://.dotagent_screenshots/3d/ with timestamp filename.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"viewport": {"type": "string", "description": "'2d' or '3d' — which viewport to capture"},
-				},
-				"required": ["viewport"],
-			},
-			"method_name": "_tool_screenshot_editor",
-			"dangerous": false,
-		},
-		{
-			"name": "screenshot_runtime",
-			"description": "Run a scene in a subprocess and capture its rendered output (~2s). Saves to res://.dotagent_screenshots/runtime/ with timestamp filename.",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"scene_path": {"type": "string", "description": "Scene to run. Omit to use the currently edited scene."},
-				},
-			},
-			"method_name": "_tool_screenshot_runtime",
-			"dangerous": false,
-		},
-		{
-			"name": "analyze_image",
-			"description": "Send a screenshot to a vision model (e.g. MiniMax-M3) for visual analysis. The image is attached to the next LLM request automatically.\n\nWorkflow: screenshot_editor → analyze_image(path, question) → model replies with visual feedback.\n\nExample: analyze_image(path='res://.dotagent_screenshots/2d/2026-06-10_00-00-00.png', question='Check button alignment and color')",
-			"parameters": {
-				"type": "object",
-				"properties": {
-					"path": {"type": "string", "description": "Path to the PNG screenshot"},
-					"question": {"type": "string", "description": "Question about the image for the vision model"},
-				},
-				"required": ["path", "question"],
-			},
-			"method_name": "_tool_analyze_image",
-			"dangerous": false,
-		},
 	]
 
 
@@ -184,6 +148,8 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_execute_gdscript": return await _tool_execute_gdscript(args)
 		"_tool_call_node_method": return _tool_call_node_method(args)
 		"_tool_open_scene": return _tool_open_scene(args)
+		"_tool_close_all_scenes": return _tool_close_all_scenes(args)
+		"_tool_list_open_scenes": return _tool_list_open_scenes(args)
 		"_tool_run_current_scene": return _tool_run_current_scene(args)
 		"_tool_stop_running_scene": return _tool_stop_running_scene(args)
 		"_tool_reload_project": return _tool_reload_project(args)
@@ -191,10 +157,6 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return await _tool_run_scene_capture(args)
 		"_tool_read_editor_output": return _tool_read_editor_output(args)
-		"_tool_focus_editor_view": return _tool_focus_editor_view(args)
-		"_tool_screenshot_editor": return _tool_screenshot_editor(args)
-		"_tool_screenshot_runtime": return await _tool_screenshot_runtime(args)
-		"_tool_analyze_image": return _tool_analyze_image(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -339,6 +301,75 @@ func _tool_open_scene(args: Dictionary) -> Dictionary:
 	if new_path == prev_path and prev_path != path:
 		return _err("Failed to open scene: edited scene root unchanged (check Godot Output panel)")
 	return _ok("Requested open: " + path)
+
+
+## 关闭全部已打开的场景标签页
+func _tool_close_all_scenes(_args: Dictionary) -> Dictionary:
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
+
+	# 先保存当前场景
+	ei.save_scene()
+
+	# 获取所有打开的场景
+	var open_scenes: Array = ei.get_open_scenes()
+	var count: int = open_scenes.size()
+	if count == 0:
+		return _ok("No open scenes")
+
+	# 找到编辑器中的场景标签栏并逐个关闭
+	var closed := _close_scene_tabs(ei)
+
+	return _ok("Closed %d scene(s). %d tab(s) removed." % [count, closed])
+
+
+## 列出当前编辑器中所有已打开的场景
+func _tool_list_open_scenes(_args: Dictionary) -> Dictionary:
+	var ei = _ei()
+	if ei == null:
+		return _err("EditorInterface unavailable")
+	var scenes: Array = ei.get_open_scenes()
+	if scenes.is_empty():
+		return _ok("(no open scenes)")
+	var current := ""
+	var root = ei.get_edited_scene_root()
+	if root:
+		current = root.scene_file_path
+	var lines: Array[String] = []
+	lines.append("Open scenes (%d):" % scenes.size())
+	for i in range(scenes.size()):
+		var marker := " ← 当前" if scenes[i] == current else ""
+		lines.append("  %d. %s%s" % [i + 1, scenes[i], marker])
+	return _ok("\n".join(lines))
+
+
+## 遍历编辑器 UI 树找到场景标签栏并触发标准关闭流程
+func _close_scene_tabs(ei: EditorInterface) -> int:
+	var base: Control = ei.get_base_control()
+	var tab_bar: TabBar = _find_tab_bar(base)
+	if tab_bar == null:
+		return 0
+
+	var closed: int = 0
+	var tab_count: int = tab_bar.get_tab_count()
+	# 从后往前触发 tab_close_pressed 信号（让编辑器走标准关闭流程）
+	for i in range(tab_count - 1, -1, -1):
+		tab_bar.set_current_tab(i)
+		tab_bar.emit_signal("tab_close_pressed", i)
+		closed += 1
+
+	return closed
+
+
+func _find_tab_bar(node: Node) -> TabBar:
+	if node is TabBar:
+		return node
+	for child in node.get_children():
+		var found: TabBar = _find_tab_bar(child)
+		if found:
+			return found
+	return null
 
 
 func _tool_stop_running_scene(args: Dictionary) -> Dictionary:
@@ -494,175 +525,6 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 		return _err("Scene '%s' ran for %d frames%s, found %d error(s):\n%s\n\n--- Full stdout/stderr (first 3KB) ---\n%s" % [scene_path, frames, exit_info, error_lines.size(), "\n".join(error_lines), preview])
 
 
-# exec_tools 辅助方法已移至 ToolBase 基类
-
-
 func _tool_read_editor_output(args: Dictionary) -> Dictionary:
 	var max_lines: int = int(args.get("max_lines", 50))
 	return _ok(EditorLogBuffer.get_recent(max_lines))
-
-
-## Switch the editor's main viewport to 2D, 3D, Script, or AssetLib.
-func _tool_focus_editor_view(args: Dictionary) -> Dictionary:
-	var view: String = args.get("view", "").to_lower()
-	if view.is_empty():
-		return _err("view is required: '2d', '3d', 'script', or 'assetlib'")
-
-	var ei = _ei()
-	if ei == null:
-		return _err("EditorInterface unavailable")
-
-	var screen_name: String
-	match view:
-		"2d": screen_name = "2D"
-		"3d": screen_name = "3D"
-		"script": screen_name = "Script"
-		"assetlib": screen_name = "AssetLib"
-		_: return _err("Unknown view: '%s'. Use '2d', '3d', 'script', or 'assetlib'." % view)
-
-	if not ei.has_method("set_main_screen_editor"):
-		return _err("EditorInterface.set_main_screen_editor not available in this Godot version")
-	ei.set_main_screen_editor(screen_name)
-	return _ok("Switched editor view to: " + screen_name)
-
-
-## Capture a screenshot of the editor's 2D or 3D viewport.
-func _tool_screenshot_editor(args: Dictionary) -> Dictionary:
-	var vp: String = args.get("viewport", "").to_lower()
-	if vp != "2d" and vp != "3d":
-		return _err("viewport must be '2d' or '3d'")
-
-	var ei = _ei()
-	if ei == null:
-		return _err("EditorInterface unavailable")
-
-	var viewport: Viewport = null
-	if vp == "2d" and ei.has_method("get_editor_viewport_2d"):
-		viewport = ei.get_editor_viewport_2d()
-	elif vp == "3d" and ei.has_method("get_editor_viewport_3d"):
-		viewport = ei.get_editor_viewport_3d()
-
-	if viewport == null:
-		return _err("Could not access %s editor viewport. Try focus_editor_view('%s') first, then retry." % [vp, vp])
-
-	var img: Image = viewport.get_texture().get_image()
-	if img == null:
-		return _err("Viewport returned no image — it may not have rendered yet. Try again.")
-
-	var out_dir := "res://.dotagent_screenshots/" + vp
-	_ensure_dir(out_dir)
-	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
-	var out_path := out_dir.path_join(timestamp + ".png")
-	var err := img.save_png(out_path)
-	if err != OK:
-		return _err("Failed to save screenshot: " + error_string(err))
-
-	var size := img.get_size()
-	var file := FileAccess.open(out_path, FileAccess.READ)
-	var file_size := 0
-	if file:
-		file_size = file.get_length()
-		file.close()
-
-	return _ok("📸 Editor %s screenshot: %s (%dx%d, %d bytes)" % [vp, out_path, size.x, size.y, file_size])
-
-
-## Run a scene in a subprocess and capture its rendered output.
-func _tool_screenshot_runtime(args: Dictionary) -> Dictionary:
-	var scene_path: String = args.get("scene_path", "")
-	if scene_path.is_empty():
-		var ei = _ei()
-		if ei:
-			var root = ei.get_edited_scene_root()
-			if root:
-				scene_path = root.scene_file_path
-	if scene_path.is_empty():
-		return _err("scene_path is required (or open a scene first)")
-	if not FileAccess.file_exists(scene_path):
-		return _err("Scene not found: " + scene_path)
-
-	var godot_exe: String = OS.get_executable_path()
-	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
-		return _err("Godot executable not found")
-
-	# Temp runner script: loads scene, waits for render, captures viewport, quits
-	var runner_path := "res://.dotagent_screenshot_runner.gd"
-	var out_dir := "res://.dotagent_screenshots/runtime"
-	_ensure_dir(out_dir)
-	var runner_src := """extends SceneTree
-
-func _init():
-	var scene := load("%s") as PackedScene
-	if scene == null:
-		print("Failed to load scene")
-		quit(1)
-		return
-	var root := scene.instantiate()
-	self.root.add_child(root)
-
-	await process_frame
-	await process_frame
-	await process_frame
-
-	var img := get_root().get_texture().get_image()
-	if img:
-		img.save_png("%s")
-	quit()
-""" % [scene_path, out_dir.path_join("_temp.png")]
-	var rf := FileAccess.open(runner_path, FileAccess.WRITE)
-	if rf == null:
-		return _err("Cannot write runner script")
-	rf.store_string(runner_src)
-	rf.close()
-
-	var project_path: String = ProjectSettings.globalize_path("res://")
-	var pid := OS.create_process(godot_exe, ["--path", project_path, "--script", ProjectSettings.globalize_path(runner_path)], false)
-	DirAccess.remove_absolute(ProjectSettings.globalize_path(runner_path))
-	if pid < 0:
-		return _err("Failed to spawn screenshot process")
-	var tree := Engine.get_main_loop() as SceneTree
-	while OS.is_process_running(pid):
-		if tree: await tree.process_frame
-
-	var temp_path := out_dir.path_join("_temp.png")
-	if not FileAccess.file_exists(temp_path):
-		return _err("Runtime screenshot failed — no image produced. Scene may have crashed.")
-
-	# Rename with timestamp
-	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
-	var final_path := out_dir.path_join(timestamp + ".png")
-	DirAccess.rename_absolute(ProjectSettings.globalize_path(temp_path), ProjectSettings.globalize_path(final_path))
-
-	var img := Image.new()
-	img.load(final_path)
-	var size := img.get_size()
-	var file := FileAccess.open(final_path, FileAccess.READ)
-	var file_size := 0
-	if file:
-		file_size = file.get_length()
-		file.close()
-
-	return _ok("📸 Runtime screenshot: %s (%dx%d, %d bytes)" % [final_path, size.x, size.y, file_size])
-
-
-## Queue an image for vision analysis in the next LLM call.
-## Writes a pending-image marker that the controller picks up and injects
-## as a user message with image attachment.
-func _tool_analyze_image(args: Dictionary) -> Dictionary:
-	var path: String = args.get("path", "")
-	var question: String = args.get("question", "")
-	if path.is_empty() or question.is_empty():
-		return _err("path and question are required")
-	if not FileAccess.file_exists(path):
-		return _err("Image not found: " + path)
-
-	# Write pending-image marker for the controller to pick up
-	var marker := {
-		"path": path,
-		"question": question,
-	}
-	var f := FileAccess.open("res://.dotagent_pending_image.json", FileAccess.WRITE)
-	f.store_string(JSON.stringify(marker))
-	f.close()
-
-	return _ok("📸 Image queued for analysis: %s\nQuestion: %s\n\nThe vision model will analyze this in the next response." % [path, question])
