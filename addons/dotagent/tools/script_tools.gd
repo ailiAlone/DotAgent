@@ -127,6 +127,19 @@ func get_tool_definitions() -> Array:
 			"dangerous": true,
 		},
 		{
+			"name": "delete_files",
+			"description": "Batch delete multiple files at once. Backs up each file before deleting. Much faster than calling delete_file one by one. Pass an array of paths.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"paths": {"type": "array", "items": {"type": "string"}, "description": "Array of res:// paths to delete"},
+				},
+				"required": ["paths"],
+			},
+			"method_name": "_tool_delete_files",
+			"dangerous": true,
+		},
+		{
 			"name": "rename_file",
 			"description": "Rename a file. Updates references in other scripts (.gd) that point to the old path. Backs up original before renaming.",
 			"parameters": {
@@ -179,6 +192,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_replace_in_scripts": return _tool_replace_in_scripts(args)
 		"_tool_replace_in_file": return _tool_replace_in_file(args)
 		"_tool_delete_file": return _tool_delete_file(args)
+		"_tool_delete_files": return _tool_delete_files(args)
 		"_tool_rename_file": return _tool_rename_file(args)
 		"_tool_check_script_syntax": return _tool_check_script_syntax(args)
 		"_tool_get_script_references": return _tool_get_script_references(args)
@@ -504,8 +518,26 @@ func _tool_delete_file(args: Dictionary) -> Dictionary:
 	var err := DirAccess.remove_absolute(path)
 	if err != OK:
 		return _err("Failed to delete: " + error_string(err))
-	_refresh_filesystem()
 	return _ok("Deleted: " + path)
+
+
+func _tool_delete_files(args: Dictionary) -> Dictionary:
+	var paths: Array = args.get("paths", [])
+	if paths.is_empty():
+		return _err("paths is required (array of res:// paths)")
+	var results: Array = []
+	for p in paths:
+		var path: String = str(p)
+		if not FileAccess.file_exists(path):
+			results.append("SKIP (not found): " + path)
+			continue
+		_get_backup().backup(path)
+		var err := DirAccess.remove_absolute(path)
+		if err != OK:
+			results.append("FAIL: " + path + " (" + error_string(err) + ")")
+		else:
+			results.append("OK: " + path)
+	return _ok("\n".join(results))
 
 
 func _tool_rename_file(args: Dictionary) -> Dictionary:
@@ -536,7 +568,6 @@ func _tool_rename_file(args: Dictionary) -> Dictionary:
 	DirAccess.remove_absolute(path)
 	# 更新引用：在其他 .gd 文件中将旧路径替换为新路径
 	var refs_updated := _update_references(path, new_path)
-	_refresh_filesystem()
 	var msg := "Renamed: %s  — %s" % [path, new_path]
 	if refs_updated > 0:
 		msg += " (updated %d references)" % refs_updated

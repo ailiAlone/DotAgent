@@ -1,0 +1,15 @@
+[gd_scene format=3 uid="uid://dt2wmxka0aq6d"]
+
+[node name="full_test_scene" type="Node2D"]
+
+[node name="Sprite" type="Sprite2D" parent="."]
+modulate = Color(0, 0, 0, 1)
+
+[node name="Area" type="Area2D" parent="Sprite"]
+
+[node name="Label" type="Label" parent="."]
+offset_right = 114.0
+offset_bottom = 23.0
+text = "Hello Tool Test"
+
+[node name="Collision" type="CollisionShape2D" parent="."]

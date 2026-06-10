@@ -127,6 +127,9 @@ func _parse_property_value(raw: Variant) -> Variant:
 
 
 ## 触发编辑器文件系统扫描（让新创建的文件立刻可见）
+## ⚠️ EditorFileSystem.scan() 会触发全局脚本重载，杀死所有 GDScript 协程。
+## 因此所有工具不再在写操作后立即调用此方法。
+## 改为由 dock_controller 在 ReAct 循环完全结束后统一刷新。
 func _refresh_filesystem() -> void:
 	var ei = _ei()
 	if ei:

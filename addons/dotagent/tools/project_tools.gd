@@ -343,10 +343,44 @@ func _tool_set_project_setting(args: Dictionary) -> Dictionary:
 		return _err("key is required")
 	if not ProjectSettings.has_setting(key):
 		return _err("Setting does not exist: " + key)
-	var value = args.get("value")
+	var value = _parse_setting_value(args.get("value"))
 	ProjectSettings.set_setting(key, value)
 	ProjectSettings.save()
 	return _ok("Set %s = %s (saved to project.godot)" % [key, str(value)])
+
+
+## 将 AI 传入的字符串值解析为正确的 Variant 类型。
+## AI 在 JSON 中只能传字符串，但 ProjectSettings 需要正确类型（Color、int、float 等）。
+func _parse_setting_value(raw):
+	if typeof(raw) != TYPE_STRING:
+		return raw
+	var s: String = str(raw).strip_edges()
+	# Color: "Color(0.02, 0.02, 0.06, 1)" → Color object
+	if s.begins_with("Color(") and s.ends_with(")"):
+		var inner := s.substr(6, s.length() - 7).strip_edges()
+		var parts := inner.split(",", false)
+		if parts.size() >= 3:
+			return Color(float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]) if parts.size() >= 4 else 1.0)
+	# Vector2: "(640, 360)"
+	if s.begins_with("(") and s.ends_with(")"):
+		var inner := s.substr(1, s.length() - 2).strip_edges()
+		var parts := inner.split(",", false)
+		if parts.size() == 2:
+			return Vector2(float(parts[0]), float(parts[1]))
+		if parts.size() == 3:
+			return Vector3(float(parts[0]), float(parts[1]), float(parts[2]))
+	# float
+	if s.is_valid_float():
+		return s.to_float()
+	# int
+	if s.is_valid_int():
+		return s.to_int()
+	# bool
+	if s == "true":
+		return true
+	if s == "false":
+		return false
+	return s
 
 
 func _tool_read_resource_as_text(args: Dictionary) -> Dictionary:

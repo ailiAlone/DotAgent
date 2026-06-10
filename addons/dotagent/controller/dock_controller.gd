@@ -38,6 +38,8 @@ signal session_changed(session_id: String, messages: Array)
 signal tool_started(tool_name: String)
 ## 单个工具执行完成
 signal tool_finished(tool_name: String, ok: bool)
+## ReAct 循环真正结束（区别于 round_complete 可能触发 retry）
+signal loop_finished()
 
 
 # ============ Constants ============
@@ -93,13 +95,13 @@ func setup(p_plugin: Object, p_activity_panel: Object, p_host_node: Node) -> voi
 
 	_config_manager = ConfigManager.instance()
 	_llm_client = LLMClient.new()
+	host_node.add_child(_llm_client)
 	_tool_registry = ToolRegistry.new()
 	_logger = SessionLog.instance()
 	_session_store = SessionStore.new()
 	_skill_manager = SkillManager.new()
 
 	_llm_client.tool_registry = _tool_registry
-	_llm_client.set_host(host_node)
 	_tool_client_setup()
 
 	_llm_client.chunk_received.connect(_on_stream_chunk)
@@ -292,17 +294,11 @@ func switch_session(session_id: String, suppress_save: bool = false) -> void:
 			i += 1
 
 	_current_session_id = session_id
-	# Aggressive auto-compact on session load: MiniMax times out at ~50+ messages
-	if _messages.size() > 30:
+	# Session 加载时检查消息量，过多则压缩存储（不影响发送——发送走 _build_send_messages）
+	if _messages.size() > 50:
 		var before := _messages.size()
 		compact_context(3)
-		_logger.warn("Auto-compacted on session load: %d → %d msgs (was too large for MiniMax)" % [before, _messages.size()])
-	else:
-		var stats := _estimate_context_usage()
-		if stats.pct > 70:
-			var before := _messages.size()
-			compact_context(max(2, int(5 * 70.0 / stats.pct)))
-			_logger.warn("Auto-compacted on session load: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
+		_logger.warn("Auto-compacted on session load: %d → %d msgs" % [before, _messages.size()])
 	session_changed.emit(session_id, _messages.duplicate())
 
 
@@ -352,8 +348,128 @@ func get_config_manager() -> ConfigManager:
 	return _config_manager
 
 
-## 压缩 context：保留 system + 最后 N 轮用户问答
-## 返回压缩前后的消息数
+## 构建发送给 LLM 的压缩消息列表。
+## 与 _messages（完整历史）不同，此方法按三层策略压缩：
+##   L1（全量）: 最后 2 轮 — user + assistant + tool_calls + tool_results 原样保留
+##   L2（纯文本）: 前 4 轮 — 只保留 user 文本 + assistant 文本（丢弃 tool_calls/results）
+##   L3（仅提问）: 再前 6 轮 — 只保留 user 消息
+##   更早的: 丢弃
+## 目标：无论对话多久，发送量控制在 ~30KB 以内。
+func _build_send_messages() -> Array:
+	var result: Array = []
+
+	# 1. System prompt
+	for msg in _messages:
+		if msg.get("role") == "system":
+			result.push_front(msg)
+			break
+
+	# 2. 从后往前找 user 消息，标记每一轮的起点
+	var user_positions: Array = []  # 每个 user 消息在 _messages 中的 index
+	for idx in range(_messages.size() - 1, -1, -1):
+		if _messages[idx].get("role") == "user":
+			user_positions.push_front(idx)
+
+	if user_positions.is_empty():
+		return result
+
+	# 3. 分三层收集
+	var seen_indices: Dictionary = {}  # 避免重复
+
+	# L1: 最后 1 轮全量
+	var l1_rounds := min(1, user_positions.size())
+	for r in range(l1_rounds):
+		var uidx: int = user_positions[user_positions.size() - 1 - r]
+		_collect_round_full(result, uidx, seen_indices)
+
+	# L2: 前 4 轮纯文本
+	var l2_start: int = max(0, user_positions.size() - l1_rounds - 4)
+	var l2_end: int = user_positions.size() - l1_rounds
+	for r in range(l2_start, l2_end):
+		var uidx: int = user_positions[r]
+		_collect_round_text_only(result, uidx, seen_indices)
+
+	# L3: 再前 6 轮只保留 user 消息
+	var l3_start: int = max(0, l2_start - 6)
+	for r in range(l3_start, l2_start):
+		var uidx: int = user_positions[r]
+		if not seen_indices.has(uidx):
+			var umsg: Dictionary = _messages[uidx]
+			result.append({"role": "user", "content": _summarize_tool_content(umsg)})
+			seen_indices[uidx] = true
+
+	_logger.append("LLM", "Send messages: %d (from %d total, L1=%d L2=%d L3=%d)" % [result.size(), _messages.size(), l1_rounds, l2_end - l2_start, l2_start - l3_start])
+	return result
+
+
+## 收集一轮的完整消息（user → assistant → tool results）
+func _collect_round_full(result: Array, user_idx: int, seen: Dictionary) -> void:
+	var i := user_idx
+	var umsg: Dictionary = _messages[i]
+	result.append({"role": "user", "content": _summarize_tool_content(umsg)})
+	seen[i] = true
+	i += 1
+	while i < _messages.size():
+		var role: String = _messages[i].get("role", "")
+		if role == "user":
+			break  # 下一轮开始了
+		if seen.has(i):
+			i += 1
+			continue
+		var msg: Dictionary = _messages[i]
+		if role == "assistant":
+			result.append(msg.duplicate(true))
+		elif role == "tool":
+			# 截断超长 tool 结果
+			var tc: Dictionary = msg.duplicate(true)
+			var content: String = tc.get("content", "")
+			if content.length() > 1000:
+				tc["content"] = content.substr(0, 1000) + "…[%d chars]" % content.length()
+			result.append(tc)
+		seen[i] = true
+		i += 1
+
+
+## 收集一轮的纯文本消息（user + assistant text，丢弃 tool_calls 和 tool results）
+func _collect_round_text_only(result: Array, user_idx: int, seen: Dictionary) -> void:
+	var i := user_idx
+	var umsg: Dictionary = _messages[i]
+	result.append({"role": "user", "content": _summarize_tool_content(umsg)})
+	seen[i] = true
+	i += 1
+	while i < _messages.size():
+		var role: String = _messages[i].get("role", "")
+		if role == "user":
+			break
+		if seen.has(i):
+			i += 1
+			continue
+		if role == "assistant":
+			var content = _messages[i].get("content", "")
+			if content != null and str(content) != "":
+				# 只保留纯文本，显示截断标记
+				var text: String = str(content)
+				if text.length() > 500:
+					text = text.substr(0, 500) + "…"
+				result.append({"role": "assistant", "content": text})
+		# tool 消息直接跳过
+		seen[i] = true
+		i += 1
+
+
+## 如果 user 消息包含大量 tool 输出引用（图片注入等），截断处理
+func _summarize_tool_content(msg: Dictionary) -> String:
+	var content = msg.get("content", "")
+	if content == null:
+		return ""
+	var text: String = str(content)
+	if text.length() > 3000:
+		text = text.substr(0, 3000) + "…[user message truncated]"
+	return text
+
+
+## 压缩 _messages 存储（保留 system + 最后 N 轮用户问答）。
+## 只在 session 加载/保存时用于控制存储大小，不影响发送（发送走 _build_send_messages）。
 func compact_context(keep_exchanges: int = 5) -> Dictionary:
 	var kept: Array[Dictionary] = []
 	for msg in _messages:
@@ -398,9 +514,10 @@ func _run_react_loop() -> void:
 
 		stream_started.emit()
 
-		# 调 LLM
+		# 构建压缩发送消息（非完整历史），然后调 LLM
+		var send_msgs := _build_send_messages()
 		var tools_def := _tool_registry.get_tool_definitions()
-		var err: int = _llm_client.chat_stream(_messages, tools_def)
+		var err: int = _llm_client.chat_stream(send_msgs, tools_def)
 		if err != OK:
 			stream_error.emit("chat_stream failed: %d" % err)
 			break
@@ -413,30 +530,52 @@ func _run_react_loop() -> void:
 		# LLM 可以返回文本解释思路，然后 finish_reason="tool_calls" 继续干活
 		_logger.append("LLM", "finish_reason=%s tool_calls=%d" % [_pending_finish_reason, _pending_tool_calls.size()])
 		if _pending_finish_reason == "tool_calls" or _pending_tool_calls.size() > 0:
-			# 有 tool call
 			_messages.append({
 				"role": "assistant",
 				"content": _stream_content if _stream_content != "" else null,
 				"tool_calls": _pending_tool_calls.duplicate(true),
 			})
 			await _execute_tool_round()
-			_inject_pending_image()
+			# 稳定延迟
+			await Engine.get_main_loop().create_timer(0.3).timeout
 			round_complete.emit(_stream_content, _pending_tool_calls.duplicate(true), _round_tool_results.duplicate(true))
-			_maybe_auto_compact()
-
 			continue
 		else:
-			# 无 tool call,纯文本
+			# 无 tool call，纯文本
 			if _stream_content != "":
 				_messages.append({"role": "assistant", "content": _stream_content})
 			round_complete.emit(_stream_content, [], [])
+
+			# 如果有待处理的图片（analyze_image 留下的），注入并继续，不退出
+			if _has_pending_image():
+				if _inject_pending_image():
+					continue
 			break
 
 	_running = false
+	loop_finished.emit()
 	progress_done.emit()
 	_logger.append("SESSION", "Loop finished. total_messages=%d" % _messages.size())
 	_logger.end_session(_messages, {"session_id": _current_session_id})
 	_save_current_session()
+	# 循环结束后统一刷新文件系统（之前工具写操作都跳过了 _refresh_filesystem）
+	_deferred_filesystem_refresh()
+
+
+## 循环结束后的统一文件系统刷新。延迟 0.5s 执行，确保所有文件变更已落盘。
+func _deferred_filesystem_refresh() -> void:
+	if plugin == null:
+		return
+	var ei = plugin.get_editor_interface()
+	if ei == null:
+		return
+	var fs = ei.get_resource_filesystem()
+	if fs == null:
+		return
+	# 延迟一帧再 scan，避免与编辑器自身文件监控冲突
+	await Engine.get_main_loop().create_timer(0.5).timeout
+	fs.scan()
+	_logger.append("LLM", "Deferred filesystem scan complete")
 
 
 ## Execute all pending tool calls from the current round.
@@ -457,26 +596,33 @@ func _execute_tool_round() -> void:
 		_messages.append({"role": "tool", "tool_call_id": tc_id, "content": result.get("content", "")})
 
 
+## 检测本轮是否全是只读工具。连续只读 ≥2 轮则强制注入写操作提醒。
 ## Check for pending image marker and inject as user message with image attachment.
-func _inject_pending_image() -> void:
+## Returns true if an image was injected and the loop should continue.
+func _has_pending_image() -> bool:
+	const marker_path := "res://.dotagent_pending_image.json"
+	return FileAccess.file_exists(marker_path)
+
+
+func _inject_pending_image() -> bool:
 	const marker_path := "res://.dotagent_pending_image.json"
 	if not FileAccess.file_exists(marker_path):
-		return
+		return false
 	var f := FileAccess.open(marker_path, FileAccess.READ)
 	if f == null:
-		return
+		return false
 	var text := f.get_as_text()
 	f.close()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(marker_path))
 
 	var json := JSON.new()
 	if json.parse(text) != OK:
-		return
+		return false
 	var marker: Dictionary = json.data
 	var path: String = marker.get("path", "")
 	var question: String = marker.get("question", "")
 	if path.is_empty():
-		return
+		return false
 
 	_messages.append({
 		"role": "user",
@@ -484,16 +630,7 @@ func _inject_pending_image() -> void:
 		"images": [path],
 	})
 	_logger.append("IMAGE", "Injected image: %s" % path.get_file())
-
-
-## Auto-compact if context exceeds 70% — keeps last 3 exchanges, re-injects system context.
-func _maybe_auto_compact() -> void:
-	var stats := _estimate_context_usage()
-	if stats.pct > 70:
-		var before := _messages.size()
-		compact_context(3)
-		_logger.warn("Auto-compacted mid-session: %d → %d msgs (was at %d%% context)" % [before, _messages.size(), stats.pct])
-		_update_system_with_context()
+	return true
 
 
 # ============ LLM 流式回调 ============

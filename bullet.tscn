@@ -1,0 +1,35 @@
+[gd_scene format=3 uid="uid://bdcexci6oa4i1"]
+
+[node name="bullet" type="Area2D"]
+
+[node name="Body" type="Polygon2D" parent="."]
+color = Color(0, 0, 0, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+
+[node name="@Polygon2D@22782" type="Polygon2D" parent="."]
+color = Color(0, 0, 0, 1)
+
+[node name="@CollisionShape2D@22791" type="CollisionShape2D" parent="."]
+
+[node name="@Polygon2D@22800" type="Polygon2D" parent="."]
+color = Color(0, 0, 0, 1)
+
+[node name="@CollisionShape2D@22809" type="CollisionShape2D" parent="."]
+
+[node name="Particles" type="CPUParticles2D" parent="."]
+amount = 60
+lifetime = 0.8
+preprocess = 0.2
+explosiveness = 0.9
+randomness = 0.6
+direction = Vector2(0, 0)
+spread = 180.0
+gravity = Vector2(0, 0)
+initial_velocity_min = 80.0
+initial_velocity_max = 300.0
+scale_amount_min = 0.5
+scale_amount_max = 2.0
+
+[node name="Flash" type="Polygon2D" parent="."]
+color = Color(0, 0, 0, 1)

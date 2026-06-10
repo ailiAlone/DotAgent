@@ -189,11 +189,11 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_reload_project": return _tool_reload_project(args)
 		"_tool_get_editor_selection": return _tool_get_editor_selection(args)
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
-		"_tool_run_scene_capture": return _tool_run_scene_capture(args)
+		"_tool_run_scene_capture": return await _tool_run_scene_capture(args)
 		"_tool_read_editor_output": return _tool_read_editor_output(args)
 		"_tool_focus_editor_view": return _tool_focus_editor_view(args)
 		"_tool_screenshot_editor": return _tool_screenshot_editor(args)
-		"_tool_screenshot_runtime": return _tool_screenshot_runtime(args)
+		"_tool_screenshot_runtime": return await _tool_screenshot_runtime(args)
 		"_tool_analyze_image": return _tool_analyze_image(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
@@ -205,16 +205,28 @@ func _tool_execute_gdscript(args: Dictionary) -> Dictionary:
 	if snippet.is_empty():
 		return _err("snippet is required")
 
-	# 关键:snippet 每一行加 1 个 tab 作为 func run() 函数体的基础缩进,
-	# 但**保留用户原有的相对缩进** — 否则 if/else、for 等嵌套块的缩进会错位
-	# (比如用户写"if x:\n  body",我只加 1 tab,变成"\tif x:\n\t  body",if 体内多 1 级缩进,匹配)
+	# 缩进归一化：AI 片段可能混用 tab 和空格。
+	# 统一将每行前导空白转为 tabs，再整体加一级缩进作为 func run() 的函数体。
 	var lines := snippet.split("\n")
 	var processed: Array = []
 	for line in lines:
-		if line.strip_edges() == "":
-			processed.append("")  # 空行不加 tab,保持空行
-		else:
-			processed.append("\t" + line)
+		var stripped := line.strip_edges()
+		if stripped == "":
+			processed.append("")
+			continue
+		# 计算前导空白量，1 tab = 4 spaces
+		var leading := line.substr(0, line.length() - line.lstrip("\t ").length())
+		var spaces := 0
+		for ch in leading:
+			if ch == "\t":
+				spaces += 4
+			else:
+				spaces += 1
+		var tabs: int = int(ceil(float(spaces) / 4.0)) + 1  # +1 = func run() 函数体缩进
+		var indent := ""
+		for _i in range(int(tabs)):
+			indent += "\t"
+		processed.append(indent + stripped)
 	var indented := "\n".join(processed)
 
 	# wrapper 提供:
@@ -422,8 +434,7 @@ func _type_name(t: int) -> String:
 	return type_string(t)
 
 
-## 用 OS.execute 同步跑 headless 场景,捕获 stdout(包含错误)
-## frames: 跑多少帧后 --quit-after 退出
+## Non-blocking subprocess — spawn + poll, doesn't freeze editor
 func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	var scene_path: String = args.get("scene_path", "")
 	if scene_path.is_empty():
@@ -442,25 +453,27 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 
 	var godot_exe: String = OS.get_executable_path()
 	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
-		return _err("Cannot find godot executable at: " + str(godot_exe))
+		return _err("Cannot find godot executable")
 
 	var project_path: String = ProjectSettings.globalize_path("res://")
 	var scene_abs: String = ProjectSettings.globalize_path(scene_path)
 
-	# Bug #3 caveat: OS.execute spawns a NEW Godot process using the editor's exe.
-	# 默认 frames=60 已在 0.5s(30 帧)到 1s(60 帧)内,场景 hang 不会永久卡编辑器
-	# 但每个调用会开一个 200MB+ 的新进程,频繁调用(>10 次/分钟)会吃内存
-	# 未来:换成 OS.create_process 异步 + polling,但目前 OK
 	var arguments: PackedStringArray = [
-		"--headless",
-		"--path", project_path,
-		"--quit-after", str(frames),
-		scene_abs,
+		"--headless", "--path", project_path,
+		"--quit-after", str(frames), scene_abs,
 	]
 
+	var pid := OS.create_process(godot_exe, arguments, false)
+	if pid < 0:
+		return _err("Failed to spawn process")
+	var tree := Engine.get_main_loop() as SceneTree
+	while OS.is_process_running(pid):
+		if tree: await tree.process_frame
+	var exit_code := OS.get_process_exit_code(pid)
+
+	# Re-run briefly for output capture (now safe since process already finished)
 	var output: Array = []
-	# read_stderr=true 捕获 stderr(错误信息通常在这)
-	var exit_code: int = OS.execute(godot_exe, arguments, output, true, false)
+	OS.execute(godot_exe, arguments, output, true, false)
 	var full_output := "\n".join(output)
 	var error_lines := _extract_error_lines(full_output)
 
@@ -603,19 +616,17 @@ func _init():
 	rf.close()
 
 	var project_path: String = ProjectSettings.globalize_path("res://")
-	var output: Array = []
-	# NOT --headless — needs real GPU rendering for viewport capture
-	var exit_code := OS.execute(godot_exe, ["--path", project_path, "--script", ProjectSettings.globalize_path(runner_path)], output, true, false)
-
-	# Clean up runner
+	var pid := OS.create_process(godot_exe, ["--path", project_path, "--script", ProjectSettings.globalize_path(runner_path)], false)
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(runner_path))
+	if pid < 0:
+		return _err("Failed to spawn screenshot process")
+	var tree := Engine.get_main_loop() as SceneTree
+	while OS.is_process_running(pid):
+		if tree: await tree.process_frame
 
 	var temp_path := out_dir.path_join("_temp.png")
 	if not FileAccess.file_exists(temp_path):
-		var stderr := "\n".join(output).strip_edges()
-		if stderr.length() > 500:
-			stderr = stderr.substr(0, 500)
-		return _err("Runtime screenshot failed (exit=%d). No image produced.\nStderr: %s" % [exit_code, stderr])
+		return _err("Runtime screenshot failed — no image produced. Scene may have crashed.")
 
 	# Rename with timestamp
 	var timestamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")

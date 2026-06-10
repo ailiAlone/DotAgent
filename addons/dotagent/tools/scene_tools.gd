@@ -217,7 +217,6 @@ func _tool_create_scene(args: Dictionary) -> Dictionary:
 		return _err("Failed to save: " + error_string(err))
 
 	# open in editor immediately
-	_refresh_filesystem()
 	var ei = _ei()
 	if ei:
 		ei.open_scene_from_path(path)
@@ -423,7 +422,6 @@ func _tool_undo_last(args: Dictionary) -> Dictionary:
 		return _err("Cannot write scene")
 	fw.store_string(content)
 	fw.close()
-	_refresh_filesystem()
 	if ei:
 		ei.open_scene_from_path(scene_path)
 	return _ok("Restored scene from backup: " + latest)

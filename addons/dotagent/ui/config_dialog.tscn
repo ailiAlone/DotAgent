@@ -5,136 +5,136 @@
 [node name="ConfigDialog" type="Window"]
 oversampling_override = 1.0
 title = "AI Panel Settings"
-size = Vector2i(520, 360)
-min_size = Vector2i(420, 320)
+initial_position = 2
+size = Vector2i(459, 434)
 script = ExtResource("1_cfg")
 
-[node name="Root" type="VBoxContainer" parent="."]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
-grow_horizontal = 2
-grow_vertical = 2
+[node name="MarginContainer" type="MarginContainer" parent="."]
+offset_right = 40.0
+offset_bottom = 40.0
+theme_override_constants/margin_left = 15
+theme_override_constants/margin_top = 15
+theme_override_constants/margin_right = 15
+theme_override_constants/margin_bottom = 15
 
-[node name="HintLabel" type="Label" parent="Root"]
+[node name="Root" type="VBoxContainer" parent="MarginContainer"]
+layout_mode = 2
+
+[node name="HintLabel" type="Label" parent="MarginContainer/Root"]
 layout_mode = 2
 text = "OpenAI-compatible API config. Stored in addons/dotagent/config.cfg (not in git)."
 autowrap_mode = 2
 
-[node name="Form" type="GridContainer" parent="Root"]
+[node name="Form" type="GridContainer" parent="MarginContainer/Root"]
 layout_mode = 2
 columns = 2
 
-[node name="BaseUrlLabel" type="Label" parent="Root/Form"]
+[node name="BaseUrlLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Base URL:"
 
-[node name="BaseUrlField" type="LineEdit" parent="Root/Form"]
+[node name="BaseUrlField" type="LineEdit" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "https://api.deepseek.com/v1"
+text = "https://api.minimaxi.com/v1"
 placeholder_text = "https://api.openai.com/v1"
 
-[node name="ApiKeyLabel" type="Label" parent="Root/Form"]
+[node name="ApiKeyLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "API Key:"
 
-[node name="ApiKeyField" type="LineEdit" parent="Root/Form"]
+[node name="ApiKeyField" type="Label" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
-text = ""
-placeholder_text = "Loaded from DOTAGENT_API_KEY"
-secret = true
+text = "✅ Loaded from DOTAGENT_API_KEY"
+autowrap_mode = 3
 
-[node name="VisionLabel" type="Label" parent="Root/Form"]
+[node name="VisionLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Vision (image input):"
 
-[node name="VisionCheckBox" type="CheckBox" parent="Root/Form"]
+[node name="VisionCheckBox" type="CheckBox" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
+button_pressed = true
 text = "Model supports image analysis"
 
-[node name="ModelLabel" type="Label" parent="Root/Form"]
+[node name="ModelLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Model:"
 
-[node name="ModelField" type="LineEdit" parent="Root/Form"]
+[node name="ModelField" type="LineEdit" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-text = "deepseek-v4-pro"
+text = "MiniMax-M3"
 placeholder_text = "gpt-4o"
 
-[node name="TempLabel" type="Label" parent="Root/Form"]
+[node name="TempLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Temperature:"
 
-[node name="TempField" type="SpinBox" parent="Root/Form"]
+[node name="TempField" type="SpinBox" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
 max_value = 2.0
 step = 0.1
 value = 0.2
 
-[node name="ContextLimitLabel" type="Label" parent="Root/Form"]
+[node name="ContextLimitLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Context Limit (K):"
 
-[node name="ContextLimitField" type="SpinBox" parent="Root/Form"]
+[node name="ContextLimitField" type="SpinBox" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
 min_value = 16.0
 max_value = 2048.0
 step = 16.0
-value = 128.0
+value = 1024.0
 
-[node name="LanguageLabel" type="Label" parent="Root/Form"]
+[node name="LanguageLabel" type="Label" parent="MarginContainer/Root/Form"]
 layout_mode = 2
 text = "Language:"
 
-[node name="LanguageField" type="OptionButton" parent="Root/Form"]
+[node name="LanguageField" type="OptionButton" parent="MarginContainer/Root/Form"]
 unique_name_in_owner = true
 layout_mode = 2
+selected = 1
 item_count = 2
 popup/item_0/text = "中文"
 popup/item_0/id = 0
 popup/item_1/text = "English"
 popup/item_1/id = 1
 
-[node name="Spacer" type="Control" parent="Root"]
+[node name="Spacer" type="Control" parent="MarginContainer/Root"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="StatusLabel" type="Label" parent="Root"]
+[node name="StatusLabel" type="Label" parent="MarginContainer/Root"]
 unique_name_in_owner = true
 layout_mode = 2
 autowrap_mode = 3
 
-[node name="Buttons" type="HBoxContainer" parent="Root"]
+[node name="Buttons" type="HBoxContainer" parent="MarginContainer/Root"]
 layout_mode = 2
 
-[node name="ButtonSpacer" type="Control" parent="Root/Buttons"]
+[node name="ButtonSpacer" type="Control" parent="MarginContainer/Root/Buttons"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="TestButton" type="Button" parent="Root/Buttons"]
+[node name="TestButton" type="Button" parent="MarginContainer/Root/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Test Connection"
 
-[node name="CancelButton" type="Button" parent="Root/Buttons"]
+[node name="CancelButton" type="Button" parent="MarginContainer/Root/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Cancel"
 
-[node name="SaveButton" type="Button" parent="Root/Buttons"]
+[node name="SaveButton" type="Button" parent="MarginContainer/Root/Buttons"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Save"

@@ -4,7 +4,7 @@ extends Window
 signal config_saved
 
 @onready var base_url_field: LineEdit = %BaseUrlField
-@onready var api_key_field: LineEdit = %ApiKeyField
+@onready var api_key_field: Label = %ApiKeyField
 @onready var vision_checkbox: CheckBox = %VisionCheckBox
 @onready var model_field: LineEdit = %ModelField
 @onready var temp_field: SpinBox = %TempField
@@ -32,15 +32,12 @@ func _ready() -> void:
 
 func _load_values() -> void:
 	base_url_field.text = _config.get_base_url()
-	# API key 只从环境变量 DOTAGENT_API_KEY 读取，不显示内容
+	# API key only from DOTAGENT_API_KEY env var
 	var key := _config.get_api_key()
-	api_key_field.editable = false
 	if key.is_empty():
-		api_key_field.text = ""
-		api_key_field.placeholder_text = "setx DOTAGENT_API_KEY \"ey-...\" then restart Godot"
+		api_key_field.text = "❌ Not set — run: setx DOTAGENT_API_KEY \"ey-...\" then restart Godot"
 	else:
-		api_key_field.text = "Loaded from DOTAGENT_API_KEY"
-		api_key_field.placeholder_text = ""
+		api_key_field.text = "✅ Loaded from DOTAGENT_API_KEY"
 	vision_checkbox.button_pressed = _config.get_vision_enabled()
 	model_field.text = _config.get_model()
 	temp_field.value = _config.get_temperature()

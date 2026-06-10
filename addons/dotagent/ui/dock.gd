@@ -44,10 +44,24 @@ var _controller: DockController = null
 # UI 内部状态
 var _stream_node: RichTextLabel = null
 var _stream_content: String = ""
+var _stream_pending: String = ""
+var _stream_last_render: float = 0.0
 var _round_tool_results: Array = []
 var _progress_node: RichTextLabel = null
 var _session_store: SessionStore = null  # UI 需要它来读 session 列表展示
 var _tool_nodes: Dictionary = {}  # tool_name → RichTextLabel, 流式工具反馈
+
+# Think 块解析 — 支持多种模型格式
+const THINK_PATTERNS := [
+	["<think>", "</think>"],
+	["<thinking>", "</thinking>"],
+	["[THINK]", "[/THINK]"],
+]
+var _in_think: bool = false
+var _think_start: int = 0
+var _think_end_tag: String = ""  # 当前匹配的结束标签
+var _think_section: VBoxContainer = null
+var _think_label: RichTextLabel = null
 
 
 func _ready() -> void:
@@ -66,6 +80,7 @@ func _ready() -> void:
 	_controller.session_changed.connect(_on_session_changed)
 	_controller.tool_started.connect(_on_tool_started)
 	_controller.tool_finished.connect(_on_tool_finished)
+	_controller.loop_finished.connect(_on_loop_finished)
 
 	# 3. 按钮绑定 → 转发给 controller / UI 自身
 	send_button.pressed.connect(_on_send_pressed)
@@ -99,23 +114,113 @@ func _ready() -> void:
 func _on_stream_started() -> void:
 	_stream_node = _append_message_node("assistant", "", true)
 	_stream_content = ""
+	_stream_pending = ""
+	_stream_last_render = 0.0
 	_round_tool_results = []
-	_tool_nodes.clear()  # 新轮次清掉上一轮的工具节点
+	_tool_nodes.clear()
+	_in_think = false
+	_think_start = 0
+	_think_end_tag = ""
+	_think_section = null
+	_think_label = null
 
 
 func _on_stream_chunk(chunk: String) -> void:
-	if _stream_node and is_instance_valid(_stream_node):
-		_stream_content += chunk
-		_stream_node.text = _stream_content
+	if not _stream_node or not is_instance_valid(_stream_node):
+		return
+	_stream_content += chunk
+	_stream_pending += chunk
+
+	# —— Think 块解析（多格式） ——
+	var display_text := _stream_content
+	if not _in_think:
+		var found := _find_think_start(_stream_content)
+		var start_idx: int = found["idx"]
+		if start_idx >= 0:
+			_in_think = true
+			_think_end_tag = found["end_tag"]
+			var tag_len: int = found["tag_len"]
+			_think_start = start_idx + tag_len
+			if _think_section == null or not is_instance_valid(_think_section):
+				_create_think_section()
+			else:
+				var content := _think_section.get_node_or_null("ThinkContent") as VBoxContainer
+				if content:
+					content.visible = true
+				var lbl := _think_section.get_child(0) as Label
+				if lbl:
+					lbl.text = "💭 思考过程 ▾"
+				if _think_label and is_instance_valid(_think_label):
+					var prev := _think_label.text
+					if prev != "":
+						_think_label.text = prev + "\n[color=#444444]———[/color]\n"
+			print("[think] start '%s' at %d" % [found["tag"], start_idx])
+			display_text = _stream_content.substr(0, start_idx)
+			var after := _stream_content.substr(_think_start)
+			var end_idx := _find_think_end_tag(after, _think_end_tag)
+			if end_idx >= 0:
+				var end_len := _think_end_tag.length()
+				_think_label.text = (_think_label.text if _think_label else "") + after.substr(0, end_idx)
+				display_text += after.substr(end_idx + end_len)
+				var processed_len := start_idx + tag_len + end_idx + end_len
+				_stream_content = _stream_content.substr(processed_len)
+				_finalize_think_section()
+				_in_think = false
+				print("[think] end, remaining=%d chars" % _stream_content.length())
+			else:
+				_think_label.text = (_think_label.text if _think_label else "") + after
+				display_text = ""
+	else:
+		var search_from := _stream_content.substr(_think_start)
+		var end_idx := _find_think_end_tag(search_from, _think_end_tag)
+		if end_idx >= 0:
+			var end_len := _think_end_tag.length()
+			_think_label.text = (_think_label.text if _think_label else "") + search_from.substr(0, end_idx)
+			display_text = search_from.substr(end_idx + end_len)
+			var processed_len := _think_start + end_idx + end_len
+			_stream_content = _stream_content.substr(processed_len)
+			_finalize_think_section()
+			_in_think = false
+			print("[think] end (in-think), remaining=%d chars" % _stream_content.length())
+		else:
+			_think_label.text = search_from
+			display_text = ""
+
+	# 去除前导空行
+	display_text = _strip_leading_newlines(display_text)
+	if _think_label and is_instance_valid(_think_label):
+		_think_label.text = _strip_leading_newlines(_think_label.text)
+	# 空内容时隐藏节点，避免大片空白
+	if _stream_node:
+		_stream_node.visible = display_text != ""
+		_stream_node.text = display_text
+	# —— Think 解析结束 ——
+
+	# 节流渲染 + 始终滚底
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _stream_last_render > 0.05 or _stream_pending.length() > 80:
+		_stream_pending = ""
+		_stream_last_render = now
 		_scroll_to_bottom()
 
 
 func _on_round_complete(content: String, tool_calls: Array, tool_results: Array) -> void:
+	if _in_think:
+		# `</think>` 从未出现 → 回退：内容放回正文，丢弃 think 框
+		print("[think] WARN: </think> never found, falling back (content=%d chars)" % _stream_content.length())
+		_stream_node.text = _stream_content
+		if _think_section and is_instance_valid(_think_section):
+			_think_section.queue_free()
+		_think_section = null
+		_think_label = null
+		_in_think = false
+	# 一轮结束，重置 think 框引用（框本身留在消息列表中作为历史记录）
+	_think_section = null
+	_think_label = null
 	_finalize_stream_node(_stream_node, tool_calls, tool_results)
 	_stream_node = null
 	_stream_content = ""
 	_round_tool_results = []
-	_set_running(false)
 	_update_context_label()
 
 
@@ -135,10 +240,18 @@ func _on_progress_remaining(remaining: float) -> void:
 		message_list.add_child(_progress_node)
 	_progress_node.clear()
 	_progress_node.append_text(("[color=#888888][i]" + Locale.t("Waiting for response... %ds timeout") + "[/i][/color]") % int(remaining))
-	_scroll_to_bottom()
+	if _is_scrolled_to_bottom():
+		_scroll_to_bottom()
+
+
+func _on_loop_finished() -> void:
+	_set_running(false)
 
 
 func _on_progress_done() -> void:
+	if _progress_node and is_instance_valid(_progress_node):
+		_progress_node.queue_free()
+		_progress_node = null
 	if _progress_node and is_instance_valid(_progress_node):
 		_progress_node.queue_free()
 		_progress_node = null
@@ -152,7 +265,8 @@ func _on_tool_started(tool_name: String) -> void:
 	message_list.add_child(node)
 	node.append_text("[color=#888888]⏳ %s...[/color]" % tool_name)
 	_tool_nodes[tool_name] = node
-	_scroll_to_bottom()
+	if _is_scrolled_to_bottom():
+		_scroll_to_bottom()
 
 
 func _on_tool_finished(tool_name: String, ok: bool) -> void:
@@ -230,6 +344,8 @@ func _on_session_changed(_session_id: String, _messages: Array) -> void:
 			i += 1
 
 	_refresh_title()
+	# 新 session — 滚到底部
+	_scroll_to_bottom()
 
 
 ## 从 tool_calls 数组里按 id 找 tool name
@@ -455,8 +571,7 @@ func _append_message_node(role: String, content: String, streaming: bool = false
 	node.custom_minimum_size = Vector2(0, 24)
 	message_list.add_child(node)
 	_format_message(node, role, content)
-	_scroll_to_bottom()
-	return node
+	return node  # don't scroll here — caller decides
 
 
 func _append_user_node(content: String) -> void:
@@ -478,7 +593,8 @@ func _append_assistant_node(content: String) -> void:
 	message_list.add_child(node)
 	node.append_text("[b][color=#a8d977]AI[/color][/b] [color=#666666][i]%s[/i][/color]\n" % _now_str())
 	node.append_text(content)
-	_scroll_to_bottom()
+	if _is_scrolled_to_bottom():
+		_scroll_to_bottom()
 
 
 func _format_message(node: RichTextLabel, role: String, content: String) -> void:
@@ -522,10 +638,118 @@ func _finalize_stream_node(node: RichTextLabel, tool_calls: Array, tool_results:
 	node.append_text("[color=#666666][i]⏳ 等待下一轮 —[/i][/color]")
 
 
+func _is_scrolled_to_bottom() -> bool:
+	if message_scroll == null:
+		return true
+	var bar := message_scroll.get_v_scroll_bar()
+	return bar.max_value - bar.value < 20
+
+
 func _scroll_to_bottom() -> void:
-	await get_tree().process_frame
+	# call_deferred：帧末执行，此时 RichTextLabel 已完成 fit_content 布局重算
 	if message_scroll:
-		message_scroll.scroll_vertical = int(message_scroll.get_v_scroll_bar().max_value)
+		message_scroll.call_deferred("set", "scroll_vertical", 99999999)
+
+
+# ============ Think 折叠框 ============
+
+func _create_think_section() -> void:
+	_think_section = VBoxContainer.new()
+	_think_section.name = "ThinkSection"
+
+	# Label 做折叠按钮 — 鼠标悬停时变色提示可点击
+	var toggle := Label.new()
+	toggle.text = "💭 思考过程 ▾"
+	toggle.mouse_filter = Control.MOUSE_FILTER_STOP
+	toggle.custom_minimum_size = Vector2(100, 20)
+	toggle.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	toggle.add_theme_font_size_override("font_size", 12)
+	toggle.mouse_entered.connect(func(): toggle.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8)))
+	toggle.mouse_exited.connect(func(): toggle.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6)))
+	_think_section.add_child(toggle)
+
+	var content := VBoxContainer.new()
+	content.name = "ThinkContent"
+	content.visible = true
+	_think_label = RichTextLabel.new()
+	_think_label.bbcode_enabled = true
+	_think_label.fit_content = true
+	_think_label.selection_enabled = true
+	_think_label.add_theme_color_override("default_color", Color(0.5, 0.5, 0.5))
+	_think_label.add_theme_font_size_override("normal_font_size", 12)
+	content.add_child(_think_label)
+	_think_section.add_child(content)
+
+	# 插入到 stream_node 之前（思考 → 回复）
+	var stream_idx := _stream_node.get_index()
+	message_list.add_child(_think_section)
+	message_list.move_child(_think_section, stream_idx)
+	# 点击事件绑定到该 think 框实例（lambda 捕获引用，不受变量清空影响）
+	var section := _think_section
+	toggle.gui_input.connect(func(ev): _toggle_section(section, ev))
+	_think_section.gui_input.connect(func(ev): _toggle_section(section, ev))
+
+
+func _toggle_section(section: VBoxContainer, event: InputEvent) -> void:
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	print("[think] toggle clicked")
+	if section == null or not is_instance_valid(section):
+		return
+	var content := section.get_node_or_null("ThinkContent") as VBoxContainer
+	if content == null:
+		return
+	content.visible = not content.visible
+	var lbl := section.get_child(0) as Label
+	if lbl:
+		lbl.text = "💭 思考过程 ▾" if content.visible else "💭 思考过程 ▸"
+
+
+func _finalize_think_section() -> void:
+	if _think_section == null or not is_instance_valid(_think_section):
+		return
+	var content := _think_section.get_node_or_null("ThinkContent") as VBoxContainer
+	if content:
+		content.visible = false
+	var lbl := _think_section.get_child(0) as Label
+	if lbl:
+		lbl.text = "💭 思考过程 ▸"
+
+
+## 在 text 中查找任意 think 开始标签。返回 {idx, tag, tag_len}，未找到 idx=-1。
+func _find_think_start(text: String) -> Dictionary:
+	for pat in THINK_PATTERNS:
+		var start_tag: String = pat[0]
+		var idx := text.find(start_tag)
+		if idx >= 0:
+			return {"idx": idx, "tag": start_tag, "end_tag": pat[1], "tag_len": start_tag.length()}
+	return {"idx": -1, "tag": "", "end_tag": "", "tag_len": 0}
+
+
+## 在 text 中查找指定结束标签。返回位置，未找到返回 -1。
+func _find_think_end_tag(text: String, end_tag: String) -> int:
+	var idx := text.find(end_tag)
+	if idx >= 0:
+		return idx
+	# 尝试去掉前导空白
+	var trimmed := text.strip_edges(false, true)
+	if trimmed != text:
+		idx = trimmed.find(end_tag)
+		if idx >= 0:
+			return idx + (text.length() - trimmed.length())
+	return -1
+
+
+## 去掉文本前导空行（\n 和 \r）
+func _strip_leading_newlines(text: String) -> String:
+	var s := text
+	while s.begins_with("\n") or s.begins_with("\r"):
+		s = s.substr(1)
+	return s
+
 
 # ============ 工具方法 ============
 
