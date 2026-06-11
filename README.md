@@ -14,6 +14,33 @@
 
 直接在 Godot 编辑器内部运行的 AI 开发助手。支持 OpenAI 兼容 API（DeepSeek / MiniMax / Ollama 等），60+ 工具完整权限——场景搭建、脚本编写、截图分析、运行验证，全在编辑器内完成闭环。
 
+## 🚀 快速开始
+
+**1. 安装**：将 `addons/dotagent/` 文件夹复制到你 Godot 项目根目录的 `addons/` 下。
+
+```
+your-project/
+├── addons/
+│   └── dotagent/          ← 复制到这里
+│       ├── plugin.cfg
+│       ├── plugin.gd
+│       └── ...
+├── project.godot
+└── ...
+```
+
+**2. 启用插件**：Godot 编辑器 → Project → Project Settings → Plugins → 勾选 **DotAgent**。
+
+**3. 配置 API**：点击编辑器右下角 AI Panel 右上角的 **Settings**：
+
+| 配置项 | 说明 | 示例 |
+|--------|------|------|
+| Base URL | API 地址 | `https://api.deepseek.com/v1` |
+| API Key | 密钥（通过环境变量设置） | 在终端运行 `setx DOTAGENT_API_KEY "sk-xxx"` 后重启 Godot |
+| Model | 模型名 | `deepseek-chat` / `MiniMax-M3` / `gpt-4o` |
+
+**API Key 只通过环境变量 `DOTAGENT_API_KEY` 读取**，不会写入配置文件，避免泄露。
+
 ## 特性
 
 - **60+ 编辑器工具** — 场景/节点 CRUD、脚本读写、项目设置、截图分析、运行验证
@@ -95,6 +122,33 @@ MIT © 2026 ailiAlone
 ## English
 
 An AI development assistant running directly inside the Godot editor. OpenAI-compatible API, full tool-calling permissions — read scenes, write scripts, add nodes, run validation, all without leaving the editor.
+
+### 🚀 Quick Start
+
+**1. Install**: Copy the `addons/dotagent/` folder into your Godot project's `addons/` directory.
+
+```
+your-project/
+├── addons/
+│   └── dotagent/          ← Copy here
+│       ├── plugin.cfg
+│       ├── plugin.gd
+│       └── ...
+├── project.godot
+└── ...
+```
+
+**2. Enable Plugin**: Godot Editor → Project → Project Settings → Plugins → Enable **DotAgent**.
+
+**3. Configure API**: Click **Settings** in the top-right of the AI Panel in the bottom-right dock:
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| Base URL | API endpoint | `https://api.deepseek.com/v1` |
+| API Key | Your key (via environment variable) | Run `setx DOTAGENT_API_KEY "sk-xxx"` in terminal, then restart Godot |
+| Model | Model name | `deepseek-chat` / `MiniMax-M3` / `gpt-4o` |
+
+**API Key is read from the `DOTAGENT_API_KEY` environment variable only** — it is never stored in config files.
 
 ### Features
 
