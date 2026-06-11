@@ -20,7 +20,7 @@ signal progress_done()
 
 const REQUEST_TIMEOUT := 120.0
 const TEST_WATCHDOG_TIMEOUT := 10.0
-const CHAT_WATCHDOG_TIMEOUT := 20.0  # 流式响应应该持续有输出，20s 无数据 = 连接僵死
+const CHAT_WATCHDOG_TIMEOUT := 60.0  # 流式响应应该持续有输出，60s 无数据 = 连接僵死
 const MAX_RETRIES := 3  # 僵死后自动重试
 
 var tool_registry: ToolRegistry

@@ -1,0 +1,82 @@
+[gd_scene load_steps=2 format=3 uid="uid://dgameover"]
+
+[ext_resource type="Script" path="res://scripts/game_over.gd" id="1_go"]
+
+[node name="GameOver" type="Control"]
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_right = 1280.0
+offset_bottom = 720.0
+script = ExtResource("1_go")
+
+[node name="Background" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0.7)
+
+[node name="Center" type="VBoxContainer" parent="."]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -260.0
+offset_right = 260.0
+offset_bottom = 260.0
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 56
+text = "GAME OVER"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.3, 0.3, 1)
+theme_override_colors/font_outline_color = Color(0.2, 0, 0, 1)
+theme_override_constants/outline_size = 4
+
+[node name="ScoreLabel" type="Label" parent="Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "SCORE  000000"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 1, 0.7, 1)
+
+[node name="BestLabel" type="Label" parent="Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "BEST   000000"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.7, 0.3, 1)
+
+[node name="WaveLabel" type="Label" parent="Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "REACHED WAVE 1"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 1)
+
+[node name="NewRecord" type="Label" parent="Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "★ NEW RECORD ★"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+visible = false
+
+[node name="Spacer" type="Control" parent="Center"]
+custom_minimum_size = Vector2(0, 20)
+layout_mode = 2
+
+[node name="Retry" type="Button" parent="Center"]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "RETRY"
+theme_override_colors/font_color = Color(0.3, 1, 0.5, 1)
+
+[node name="Menu" type="Button" parent="Center"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "MENU"
+theme_override_colors/font_color = Color(0.7, 0.85, 1, 1)
