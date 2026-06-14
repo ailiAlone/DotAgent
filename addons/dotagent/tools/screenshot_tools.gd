@@ -113,8 +113,8 @@ func _tool_screenshot_runtime(args: Dictionary) -> Dictionary:
 	if exit_code != 0:
 		return _err("Runtime screenshot failed (exit code %d). Scene may have crashed." % exit_code)
 
-	# 等待文件写入完成
-	await Engine.get_main_loop().create_timer(1.0).timeout
+	# 优化: 改用文件存在轮询代替 create_timer
+	await _await_file(out_path, 2000)
 
 	var img := Image.new()
 	var err := img.load(out_path)
@@ -124,11 +124,20 @@ func _tool_screenshot_runtime(args: Dictionary) -> Dictionary:
 		exit_code = OS.execute(exe, run_args, output, true)
 		if exit_code != 0:
 			return _err("Runtime screenshot failed — no image produced. Scene may have crashed.")
-		await Engine.get_main_loop().create_timer(1.0).timeout
+		await _await_file(out_path, 2000)
 		err = img.load(out_path)
 		if err != OK:
 			return _err("Runtime screenshot failed — no image produced. Scene may have crashed.")
 	return _ok("📸 Runtime screenshot: %s (%dx%d)" % [out_path, img.get_width(), img.get_height()])
+
+
+## 优化: 改用文件存在轮询代替 create_timer,避免 @tool 脚本中的 timer 失效
+func _await_file(path: String, max_wait_ms: int = 2000) -> void:
+	var deadline := Time.get_ticks_msec() + max_wait_ms
+	while Time.get_ticks_msec() < deadline:
+		if FileAccess.file_exists(path):
+			return
+		await Engine.get_main_loop().process_frame
 
 
 func _tool_analyze_image(args: Dictionary) -> Dictionary:

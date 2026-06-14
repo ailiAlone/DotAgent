@@ -5,7 +5,9 @@
 # DotAgent: sensitive / generated
 addons/dotagent/config.cfg
 .dotagent_backups/
-
-# Session data + run logs (regenerated each session, large)
-addons/dotagent/sessions/
+.dotagent_screenshots/
 addons/dotagent/logs/
+addons/dotagent/sessions/
+
+# Local test files with credentials
+model_fetch_test_keys.md

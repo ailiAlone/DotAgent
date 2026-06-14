@@ -5,6 +5,8 @@ extends RefCounted
 ##
 ## 从 DockController 中拆分出来，保持 controller 文件可维护。
 
+const MAX_USER_MSG_LEN := 3000  # 超过此长度的 user 消息会被截断,避免单条消息撑爆 context
+
 var _messages: Array[Dictionary]
 var _logger: SessionLog
 
@@ -61,6 +63,6 @@ func _truncate_user(msg: Dictionary) -> String:
 	if content == null:
 		return ""
 	var text: String = str(content)
-	if text.length() > 3000:
-		text = text.substr(0, 3000) + "…[user message truncated]"
+	if text.length() > MAX_USER_MSG_LEN:
+		text = text.substr(0, MAX_USER_MSG_LEN) + "…[user message truncated]"
 	return text

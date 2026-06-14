@@ -12,13 +12,15 @@ const BACKUP_ROOT := "res://.dotagent_backups"
 const MAX_BACKUP_DIRS := 10
 
 
-func _init() -> void:
-	# 构造时自动清理旧备份，减少 Language Server 扫描噪音
-	_cleanup_old()
+var _cleanup_done: bool = false
 
 
 ## 备份一个文件,返回备份后的路径(失败返回空字符串)
 func backup(file_path: String) -> String:
+	# 优化: 清理旧备份移到首次 backup 调用,避免 _init 触发磁盘扫描
+	if not _cleanup_done:
+		_cleanup_old()
+		_cleanup_done = true
 	if not FileAccess.file_exists(file_path):
 		return ""
 	var ts := Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")

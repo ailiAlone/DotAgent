@@ -6,10 +6,14 @@ extends RefCounted
 ## 用法:
 ##   plugin.gd:  EditorLogBuffer.start()
 ##   exec_tools: EditorLogBuffer.get_recent(50)
+##
+## 优化: 使用循环缓冲区（head/tail 索引）避免 Array.pop_front() 的 O(n)
 
 const MAX_LINES := 1000
 
-static var _lines: Array[String] = []
+static var _ring: Array[String] = []  # 固定 MAX_LINES 大小,空槽位保留
+static var _head: int = 0  # 下一个写入位置
+static var _count: int = 0  # 当前已填充行数
 static var _logger: Logger = null
 
 
@@ -40,10 +44,15 @@ class RingBufferLogger extends Logger:
 		EditorLogBuffer._append(msg)
 
 
+## O(1) 写入,满时覆盖最旧
 static func _append(msg: String) -> void:
-	_lines.append(msg)
-	while _lines.size() > MAX_LINES:
-		_lines.pop_front()
+	if _ring.size() < MAX_LINES:
+		_ring.append(msg)
+		_count = _ring.size()
+		_head = (_head + 1) % MAX_LINES
+	else:
+		_ring[_head] = msg
+		_head = (_head + 1) % MAX_LINES
 
 
 static func start() -> void:
@@ -59,11 +68,21 @@ static func stop() -> void:
 		_logger = null
 
 
+## 按时间顺序返回最近 max_lines 行(最早的在最前)
 static func get_recent(max_lines: int = 50) -> String:
-	if _lines.is_empty():
+	if _count == 0:
 		return "(no editor output captured yet)"
-	var start := max(0, _lines.size() - max_lines)
+	var n := min(max_lines, _count)
+	# 计算起点: 最早的 n 条
+	var start := 0
+	if _count > MAX_LINES:
+		# 已满,_head 是下一个写入位置(即最旧)
+		start = _head
+	# 取最后 n 条
 	var result: Array = []
-	for i in range(start, _lines.size()):
-		result.append(_lines[i])
-	return "[last %d of %d captured lines]\n%s" % [result.size(), _lines.size(), "\n".join(result)]
+	var total := min(_count, MAX_LINES)
+	var from := max(0, total - n)
+	for i in range(n):
+		var idx: int = (start + from + i) % MAX_LINES
+		result.append(_ring[idx])
+	return "[last %d of %d captured lines]\n%s" % [result.size(), _count, "\n".join(result)]

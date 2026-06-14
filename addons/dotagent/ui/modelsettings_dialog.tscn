@@ -1,0 +1,79 @@
+[gd_scene load_steps=2 format=3 uid="uid://b47itki11feo0"]
+
+[ext_resource type="Script" uid="uid://cluu5ol0jcwxu" path="res://addons/dotagent/ui/modelsettings_dialog.gd" id="1_s7aha"]
+
+[node name="ModelsettingsDialog" type="Window"]
+oversampling_override = 1.0
+title = "模型设置"
+initial_position = 2
+size = Vector2i(270, 133)
+wrap_controls = true
+exclusive = true
+minimize_disabled = true
+maximize_disabled = true
+script = ExtResource("1_s7aha")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 172.0
+offset_bottom = 105.0
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+custom_minimum_size = Vector2(250, 0)
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="VisionEnableLabel" type="Label" parent="MarginContainer/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "图片输入："
+
+[node name="VisionEnableCheckBox" type="CheckBox" parent="MarginContainer/VBoxContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 10
+text = "启用"
+
+[node name="HBoxContainer2" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="ContextLengthLabel" type="Label" parent="MarginContainer/VBoxContainer/HBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "上下文限制："
+
+[node name="ContextLengthLineEdit" type="LineEdit" parent="MarginContainer/VBoxContainer/HBoxContainer2"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 10
+text = "1000"
+alignment = 1
+
+[node name="Label2" type="Label" parent="MarginContainer/VBoxContainer/HBoxContainer2"]
+layout_mode = 2
+text = "K"
+
+[node name="HBoxContainer3" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="AutomaticCompressionThresholdLabel" type="Label" parent="MarginContainer/VBoxContainer/HBoxContainer3"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "自动压缩阈值："
+
+[node name="AutomaticCompressionThresholdSpinBox" type="SpinBox" parent="MarginContainer/VBoxContainer/HBoxContainer3"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 10
+value = 76.0
+rounded = true
+alignment = 1
+suffix = "%"

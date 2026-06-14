@@ -43,7 +43,7 @@ static func instance() -> SessionLog:
 
 ## 开始新会话（用户发消息时调用）
 func start_session() -> String:
-	var dt := Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")
+	var dt: String = Time.get_datetime_string_from_system(false).replace(":", "-").replace("T", "_")
 	if dt.contains("."):
 		dt = dt.split(".")[0]
 	_session_id = dt
@@ -79,6 +79,9 @@ func end_session(messages: Array, meta_extra: Dictionary = {}) -> void:
 	var diagnostics := SessionDiagnostics.analyze(_session_data)
 
 	# 写文件
+	# 注意: session_store 是消息的"运行时真相来源"(用于恢复会话)
+	# logger 这里是"诊断快照"(用于 bug 复盘,包含当时 meta_extra)
+	# 两边各司其职,不删除 logger 的 messages.json
 	_write_session_json()
 	_write_timeline_md(diagnostics)
 	_write_messages_json(messages)
@@ -211,12 +214,29 @@ func set_model(model: String) -> void:
 # ============ 内部：写文件 ============
 
 ## 实时落盘 raw_lines（崩溃时尽量不丢日志）
+## 优化: 用 append 模式而非全量重写，避免长会话性能下降
 func _flush_raw_lines() -> void:
 	var path := _session_dir.path_join("event_log.txt")
-	var f := FileAccess.open(path, FileAccess.WRITE)
+	# 计算上次已写入的字节数，只追加新增的部分
+	var existing_size := 0
+	if FileAccess.file_exists(path):
+		existing_size = FileAccess.get_file_as_bytes(path).size()
+	var f := FileAccess.open(path, FileAccess.READ_WRITE)
 	if f == null:
+		# 第一次写：fallback 到 WRITE 模式
+		f = FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			return
+		f.store_string("\n".join(_raw_lines))
+		f.close()
 		return
-	f.store_string("\n".join(_raw_lines))
+	# 把 _raw_lines 中下标 >= existing_size 的部分追加
+	var to_write := _raw_lines.slice(existing_size)
+	if to_write.is_empty():
+		f.close()
+		return
+	f.seek_end()
+	f.store_string("\n" + "\n".join(to_write))
 	f.close()
 
 

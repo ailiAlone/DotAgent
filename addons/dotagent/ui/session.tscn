@@ -1,0 +1,76 @@
+[gd_scene load_steps=2 format=3 uid="uid://b42ro7q12pi12"]
+
+[ext_resource type="Script" uid="uid://buyc16nv3uy37" path="res://addons/dotagent/ui/session_panel.gd" id="1_ba5gc"]
+
+[node name="SessionPopup" type="PopupPanel"]
+oversampling_override = 1.0
+title = "会话"
+size = Vector2i(480, 400)
+script = ExtResource("1_ba5gc")
+
+[node name="SessionVBox" type="VBoxContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 476.0
+offset_bottom = 396.0
+
+[node name="TopBar" type="HBoxContainer" parent="SessionVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="NewButton" type="Button" parent="SessionVBox/TopBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "新建"
+
+[node name="Spacer" type="Control" parent="SessionVBox/TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SearchField" type="LineEdit" parent="SessionVBox/TopBar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(160, 0)
+layout_mode = 2
+placeholder_text = "搜索…"
+
+[node name="SessionList" type="ItemList" parent="SessionVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ActionBar" type="HBoxContainer" parent="SessionVBox"]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="SwitchButton" type="Button" parent="SessionVBox/ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "切换"
+
+[node name="RenameButton" type="Button" parent="SessionVBox/ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "重命名"
+
+[node name="ForkButton" type="Button" parent="SessionVBox/ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "分支"
+
+[node name="DeleteButton" type="Button" parent="SessionVBox/ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "删除"
+
+[node name="Spacer2" type="Control" parent="SessionVBox/ActionBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CloseButton" type="Button" parent="SessionVBox/ActionBar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "关闭"

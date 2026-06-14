@@ -1,0 +1,26 @@
+[gd_scene load_steps=2 format=3 uid="uid://crjd21l0kens8"]
+
+[ext_resource type="Script" uid="uid://cgh5x2x7p3iin" path="res://addons/dotagent/ui/model_picker.gd" id="1_n1qcj"]
+
+[node name="ModelBar" type="HBoxContainer"]
+script = ExtResource("1_n1qcj")
+
+[node name="ModelLabel" type="Label" parent="."]
+layout_mode = 2
+text = "Model:"
+
+[node name="ModelButton" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Model-Name"
+alignment = 0
+
+[node name="RefreshModelsButton" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Refresh model list"
+text = "↻"
+
+[node name="ModelPopup" type="PopupMenu" parent="."]
+unique_name_in_owner = true

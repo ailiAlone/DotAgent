@@ -40,17 +40,6 @@ func get_context() -> String:
 	return "\n".join(lines)
 
 
-## 打印摘要供 AI 生成
-func format_for_summary_generation() -> String:
-	if summaries.is_empty():
-		return "(无历史对话)"
-	var lines: Array[String] = []
-	for i in range(summaries.size()):
-		var s := summaries[i]
-		lines.append("- 对话%d: %s → %s" % [i + 1, s.get("user_message", ""), s.get("summary", "")])
-	return "\n".join(lines)
-
-
 func _truncate(text: String, max_len: int) -> String:
 	if text.length() <= max_len:
 		return text

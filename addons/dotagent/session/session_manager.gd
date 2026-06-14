@@ -16,7 +16,7 @@ var _logger: SessionLog
 
 
 func setup(logger: SessionLog) -> void:
-	_session_store = SessionStore.new()
+	_session_store = SessionStore.instance()
 	_logger = logger
 
 

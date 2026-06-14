@@ -18,6 +18,15 @@ extends RefCounted
 
 const SESSIONS_ROOT := "res://addons/dotagent/sessions"
 
+static var _instance: SessionStore = null
+
+
+## 单例访问（避免 dock/controller/session_panel 创建多实例重复扫描）
+static func instance() -> SessionStore:
+	if _instance == null:
+		_instance = SessionStore.new()
+	return _instance
+
 
 # ============ Public API ============
 
@@ -86,14 +95,25 @@ func delete_session(id: String) -> bool:
 	var dir_path := SESSIONS_ROOT.path_join(id)
 	if not DirAccess.dir_exists_absolute(dir_path):
 		return false
-	# GDScript 没有 rm -rf 工具,用 OS.execute 跨平台删
-	var abs_path := ProjectSettings.globalize_path(dir_path)
-	var err: int
-	if OS.get_name() == "Windows":
-		err = OS.execute("cmd", ["/c", "rmdir", "/s", "/q", abs_path], [], true, false)
-	else:
-		err = OS.execute("rm", ["-rf", abs_path], [], true, false)
-	return err == 0
+	return _rm_recursive(dir_path)
+
+
+## 递归删除目录及其内容（纯 GDScript,跨平台,避免 OS.execute 安全警告）
+static func _rm_recursive(path: String) -> bool:
+	var dir := DirAccess.open(path)
+	if dir == null:
+		return false
+	dir.list_dir_begin()
+	var entry := dir.get_next()
+	while entry != "":
+		var entry_path := path.path_join(entry)
+		if dir.current_is_dir():
+			_rm_recursive(entry_path)
+		else:
+			dir.remove(entry)
+		entry = dir.get_next()
+	dir.list_dir_end()
+	return DirAccess.remove_absolute(path) == OK
 
 
 ## 读 session 的消息数组

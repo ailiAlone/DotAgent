@@ -3,7 +3,12 @@ class_name LLMClient
 extends Node
 ## OpenAI-compatible LLM client with TRUE streaming via HTTPClient polling.
 ##
-## Usage:
+## 多 API 格式支持已抽象到 LLMProvider 系列（provider_base.gd / openai_provider.gd /
+## anthropic_provider.gd / ollama_provider.gd / provider_factory.gd）。
+## 本类目前保留 OpenAI 直连实现作为默认（最稳定）。
+## 通过 set_provider() 可切换到任意 LLMProvider 实例。
+##
+## 用法:
 ##   client = LLMClient.new()
 ##   client.tool_registry = some_tool_registry
 ##   client.chunk_received.connect(_on_chunk)
@@ -107,6 +112,11 @@ func chat_stream(messages: Array, tools: Array, timeout: float = -1.0) -> Error:
 func _connect_and_send() -> void:
 	if _client == null:
 		_client = HTTPClient.new()
+	if _config.is_proxy_enabled():
+		var proxy_host := _config.get_effective_proxy_host()
+		var proxy_port := _config.get_proxy_port()
+		_client.set_http_proxy(proxy_host, proxy_port)
+		_client.set_https_proxy(proxy_host, proxy_port)
 	var err := _client.connect_to_host(_host, _port, TLSOptions.client())
 	if err != OK:
 		_on_http_error("Failed to connect: %d" % err)
@@ -286,13 +296,9 @@ func _dispatch_sse_event(event_text: String) -> void:
 		return
 
 	var json_text := "\n".join(data_lines)
-	var json := JSON.new()
-	if json.parse(json_text) != OK:
+	var obj: Variant = JSON.parse_string(json_text)
+	if obj == null or typeof(obj) != TYPE_DICTIONARY:
 		_logger.warn("SSE JSON parse error: %s" % json_text.substr(0, 200))
-		return
-
-	var obj: Variant = json.data
-	if typeof(obj) != TYPE_DICTIONARY:
 		return
 	var choices: Array = obj.get("choices", [])
 	if choices.is_empty():
@@ -300,7 +306,8 @@ func _dispatch_sse_event(event_text: String) -> void:
 	var choice: Dictionary = choices[0]
 	var delta: Dictionary = choice.get("delta", {})
 
-	var fr: String = str(choice.get("finish_reason", ""))
+	var fr_raw = choice.get("finish_reason", "")
+	var fr: String = str(fr_raw) if fr_raw != null else ""
 	if fr != "":
 		_accumulated_finish_reason = fr
 
@@ -467,6 +474,11 @@ func _normalize_url(base: String) -> String:
 	var url := base.strip_edges()
 	if url.ends_with("/"):
 		url = url.substr(0, url.length() - 1)
+
+	# DeepSeek API 不使用 /v1 前缀，自动修正
+	if "deepseek.com" in url and url.ends_with("/v1"):
+		url = url.substr(0, url.length() - 3)
+
 	if not url.ends_with("/chat/completions"):
 		url = url + "/chat/completions"
 	return url

@@ -14,6 +14,7 @@ extends "res://addons/dotagent/tools/tool_base.gd"
 ## - list_skills
 ## - create_skill
 
+const MEMORY_PATH := "res://.dotagent_memory.md"
 
 
 
@@ -221,7 +222,7 @@ func _parse_setting_value(raw):
 	return s
 
 
-const MEMORY_PATH := "res://.dotagent_memory.md"
+
 
 
 func _tool_remember(args: Dictionary) -> Dictionary:

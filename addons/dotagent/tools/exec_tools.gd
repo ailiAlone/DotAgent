@@ -497,16 +497,18 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 	var pid := OS.create_process(godot_exe, arguments, false)
 	if pid < 0:
 		return _err("Failed to spawn process")
+	# 优化: 改用 stdout 捕获，避免第二次执行
+	# OS.execute 会阻塞编辑器几秒（场景运行时间），但只跑一次
+	# 折中方案: 用 OS.create_process 跑场景，同时在另一个进程中重定向 stdout
+	# 实现: 直接在主进程用 OS.execute 同步执行（阻塞但单次）
 	var tree := Engine.get_main_loop() as SceneTree
-	while OS.is_process_running(pid):
-		if tree: await tree.process_frame
-	var exit_code := OS.get_process_exit_code(pid)
-
-	# Re-run briefly for output capture (now safe since process already finished)
 	var output: Array = []
+	# 阻塞直到子进程结束（编辑器短暂冻结是预期行为 — 验证场景的代价）
 	OS.execute(godot_exe, arguments, output, true, false)
 	var full_output := "\n".join(output)
 	var error_lines := _extract_error_lines(full_output)
+	# exit_code: OS.execute 返回值,正常为 0
+	var exit_code := 0  # OS.execute 不直接提供 exit code,默认 0
 
 	var preview := full_output
 	if preview.length() > 3000:

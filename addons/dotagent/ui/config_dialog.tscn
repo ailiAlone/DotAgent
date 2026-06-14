@@ -4,14 +4,28 @@
 
 [node name="ConfigDialog" type="Window"]
 oversampling_override = 1.0
-title = "AI Panel Settings"
+title = "DotAgent Settings"
 initial_position = 2
-size = Vector2i(459, 434)
+size = Vector2i(358, 310)
+exclusive = true
+minimize_disabled = true
+maximize_disabled = true
 script = ExtResource("1_cfg")
 
 [node name="MarginContainer" type="MarginContainer" parent="."]
-offset_right = 40.0
-offset_bottom = 40.0
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -179.0
+offset_top = -155.0
+offset_right = 179.0
+offset_bottom = 155.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
 theme_override_constants/margin_left = 15
 theme_override_constants/margin_top = 15
 theme_override_constants/margin_right = 15
@@ -19,122 +33,129 @@ theme_override_constants/margin_bottom = 15
 
 [node name="Root" type="VBoxContainer" parent="MarginContainer"]
 layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+theme_override_constants/separation = 8
 
 [node name="HintLabel" type="Label" parent="MarginContainer/Root"]
+custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
-text = "OpenAI-compatible API config. Stored in addons/dotagent/config.cfg (not in git)."
+text = "OpenAI-compatible API config."
 autowrap_mode = 2
 
-[node name="Form" type="GridContainer" parent="MarginContainer/Root"]
+[node name="Provider" type="HBoxContainer" parent="MarginContainer/Root"]
 layout_mode = 2
-columns = 2
 
-[node name="BaseUrlLabel" type="Label" parent="MarginContainer/Root/Form"]
+[node name="Label" type="Label" parent="MarginContainer/Root/Provider"]
 layout_mode = 2
-text = "Base URL:"
+text = "Provider:"
 
-[node name="BaseUrlField" type="LineEdit" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="ProviderSelect" type="OptionButton" parent="MarginContainer/Root/Provider"]
+layout_mode = 2
+size_flags_horizontal = 10
+selected = 7
+item_count = 9
+popup/item_0/text = "OpenAI"
+popup/item_0/id = 0
+popup/item_1/text = "DeepSeek"
+popup/item_1/id = 1
+popup/item_2/text = "Moonshot (Kimi)"
+popup/item_2/id = 2
+popup/item_3/text = "MiniMax"
+popup/item_3/id = 3
+popup/item_4/text = "Zhipu AI (GLM)"
+popup/item_4/id = 4
+popup/item_5/text = "Qwen (DashScope)"
+popup/item_5/id = 5
+popup/item_6/text = "Doubao (Volcengine)"
+popup/item_6/id = 6
+popup/item_7/text = "xAI (Grok)"
+popup/item_7/id = 7
+popup/item_8/text = "Custom"
+popup/item_8/id = 8
+
+[node name="BaseUrlField" type="LineEdit" parent="MarginContainer/Root"]
+custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
 size_flags_horizontal = 3
-text = "https://api.minimaxi.com/v1"
+text = "https://api.x.ai/v1"
 placeholder_text = "https://api.openai.com/v1"
+editable = false
+expand_to_text_length = true
 
-[node name="ApiKeyLabel" type="Label" parent="MarginContainer/Root/Form"]
+[node name="APIKEY" type="VBoxContainer" parent="MarginContainer/Root"]
 layout_mode = 2
-text = "API Key:"
 
-[node name="ApiKeyField" type="Label" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="ApiKeyLabel" type="Label" parent="MarginContainer/Root/APIKEY"]
 layout_mode = 2
-text = "✅ Loaded from DOTAGENT_API_KEY"
-autowrap_mode = 3
+tooltip_text = "Enter your API key, then click Configure & Restart.
 
-[node name="VisionLabel" type="Label" parent="MarginContainer/Root/Form"]
-layout_mode = 2
-text = "Vision (image input):"
+The key is stored in the DOTAGENT_API_KEY environment variable and never saved to config files."
+mouse_filter = 0
+text = "ⓘ  API Key:"
 
-[node name="VisionCheckBox" type="CheckBox" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="ApiKeyLineEdit" type="LineEdit" parent="MarginContainer/Root/APIKEY"]
 layout_mode = 2
+text = "xai-O6****Dvaz"
+placeholder_text = "sk-..."
+
+[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer/Root/APIKEY"]
+layout_mode = 2
+
+[node name="ApplyAndRestartButton" type="Button" parent="MarginContainer/Root/APIKEY/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 10
+text = "Configure & Restart"
+
+[node name="TestButton" type="Button" parent="MarginContainer/Root/APIKEY/HBoxContainer"]
+layout_mode = 2
+text = "Test"
+
+[node name="Proxy" type="HBoxContainer" parent="MarginContainer/Root"]
+layout_mode = 2
+theme_override_constants/separation = 9
+
+[node name="Label" type="Label" parent="MarginContainer/Root/Proxy"]
+layout_mode = 2
+text = "Proxy:"
+
+[node name="CheckBox" type="CheckBox" parent="MarginContainer/Root/Proxy"]
+layout_mode = 2
+size_flags_horizontal = 10
 button_pressed = true
-text = "Model supports image analysis"
+text = "Enable"
 
-[node name="ModelLabel" type="Label" parent="MarginContainer/Root/Form"]
+[node name="ProxyHostField" type="LineEdit" parent="MarginContainer/Root/Proxy"]
+custom_minimum_size = Vector2(85, 0)
 layout_mode = 2
-text = "Model:"
+size_flags_horizontal = 10
+text = "127.0.0.1"
+placeholder_text = "127.0.0.1"
 
-[node name="ModelField" type="LineEdit" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="ProxyPortField" type="SpinBox" parent="MarginContainer/Root/Proxy"]
 layout_mode = 2
-size_flags_horizontal = 3
-text = "MiniMax-M3"
-placeholder_text = "gpt-4o"
+size_flags_horizontal = 8
+max_value = 65535.0
+value = 7897.0
+rounded = true
 
-[node name="TempLabel" type="Label" parent="MarginContainer/Root/Form"]
+[node name="Language" type="HBoxContainer" parent="MarginContainer/Root"]
 layout_mode = 2
-text = "Temperature:"
 
-[node name="TempField" type="SpinBox" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="LanguageLabel" type="Label" parent="MarginContainer/Root/Language"]
 layout_mode = 2
-max_value = 2.0
-step = 0.1
-value = 0.2
+tooltip_text = "Controls the language of the plugin UI text.
 
-[node name="ContextLimitLabel" type="Label" parent="MarginContainer/Root/Form"]
-layout_mode = 2
-text = "Context Limit (K):"
+Note: The Godot editor will force-localize some of the plugin's UI text."
+mouse_filter = 0
+text = "ⓘ  Language:"
 
-[node name="ContextLimitField" type="SpinBox" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
+[node name="LanguageField" type="OptionButton" parent="MarginContainer/Root/Language"]
 layout_mode = 2
-min_value = 16.0
-max_value = 2048.0
-step = 16.0
-value = 1024.0
-
-[node name="LanguageLabel" type="Label" parent="MarginContainer/Root/Form"]
-layout_mode = 2
-text = "Language:"
-
-[node name="LanguageField" type="OptionButton" parent="MarginContainer/Root/Form"]
-unique_name_in_owner = true
-layout_mode = 2
+size_flags_horizontal = 10
 selected = 1
 item_count = 2
 popup/item_0/text = "中文"
 popup/item_0/id = 0
 popup/item_1/text = "English"
 popup/item_1/id = 1
-
-[node name="Spacer" type="Control" parent="MarginContainer/Root"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="StatusLabel" type="Label" parent="MarginContainer/Root"]
-unique_name_in_owner = true
-layout_mode = 2
-autowrap_mode = 3
-
-[node name="Buttons" type="HBoxContainer" parent="MarginContainer/Root"]
-layout_mode = 2
-
-[node name="ButtonSpacer" type="Control" parent="MarginContainer/Root/Buttons"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="TestButton" type="Button" parent="MarginContainer/Root/Buttons"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Test Connection"
-
-[node name="CancelButton" type="Button" parent="MarginContainer/Root/Buttons"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Cancel"
-
-[node name="SaveButton" type="Button" parent="MarginContainer/Root/Buttons"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Save"

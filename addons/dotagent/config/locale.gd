@@ -14,23 +14,47 @@ static var _dict := {
 	"Clear": {"en": "Clear", "zh": "清除"},
 	"Settings": {"en": "Settings", "zh": "设置"},
 	"Compact": {"en": "Compact", "zh": "压缩"},
+	"Model": {"en": "Model", "zh": "模型"},
 	"Stop": {"en": "Stop", "zh": "停止"},
 	"Send": {"en": "Send", "zh": "发送"},
 	# Settings
 	"AI Panel Settings": {"en": "AI Panel Settings", "zh": "AI 面板设置"},
+	"OpenAI-compatible API config.": {
+		"en": "OpenAI-compatible API config.",
+		"zh": "OpenAI 兼容 API 格式 配置。"
+	},
 	"OpenAI-compatible API config. Stored in addons/dotagent/config.cfg (not in git).": {
 		"en": "OpenAI-compatible API config. Stored in addons/dotagent/config.cfg (not in git).",
 		"zh": "OpenAI 兼容 API 配置。存储在 addons/dotagent/config.cfg（不进 git）。"
 	},
+	"Provider:": {"en": "Provider:", "zh": "提供商:"},
 	"Base URL:": {"en": "Base URL:", "zh": "Base URL:"},
 	"API Key:": {"en": "API Key:", "zh": "API Key:"},
 	"Model:": {"en": "Model:", "zh": "Model:"},
+	"proxy:": {"en": "Proxy:", "zh": "代理:"},
+	"enable": {"en": "Enable", "zh": "启用"},
+	"Proxy Host:": {"en": "Proxy Host:", "zh": "代理主机:"},
+	"Proxy Port:": {"en": "Proxy Port:", "zh": "代理端口:"},
 	"Temperature:": {"en": "Temperature:", "zh": "Temperature:"},
 	"Context Limit (K):": {"en": "Context Limit (K):", "zh": "上下文限制 (K):"},
+	"Context Limit:": {"en": "Context Limit:", "zh": "上下文限制:"},
+	"Vision:": {"en": "Vision:", "zh": "视觉:"},
+	"Yes": {"en": "Yes", "zh": "是"},
+	"No": {"en": "No", "zh": "否"},
+	"Auto": {"en": "Auto", "zh": "自动"},
 	"Language:": {"en": "Language:", "zh": "语言:"},
+	"中文": {"en": "中文", "zh": "中文"},
+	"English": {"en": "English", "zh": "English"},
 	"Save": {"en": "Save", "zh": "保存"},
 	"Test": {"en": "Test", "zh": "测试"},
 	"Test Connection": {"en": "Test Connection", "zh": "测试连接"},
+	"Cancel": {"en": "Cancel", "zh": "取消"},
+	"Configure & Restart": {"en": "Configure & Restart", "zh": "配置并重启"},
+	# API Key field status
+	"please_select_model": {
+		"en": "❌ Please select a model in the main Dock first",
+		"zh": "❌ 请先在主 Dock 底部选择模型"
+	},
 	# Input
 	"Ask AI to do something... (Enter to send, Shift+Enter for newline)": {
 		"en": "Ask AI to do something... (Enter to send, Shift+Enter for newline)",
@@ -82,6 +106,19 @@ static var _dict := {
 	"(not configured)": {"en": "(not configured)", "zh": "（未配置）"},
 	# Activity
 	"Tool Activity": {"en": "Tool Activity", "zh": "工具活动"},
+	# Tooltips
+	"api_key_hint_title": {
+		"en": "Enter your API key, then click Configure & Restart.",
+		"zh": "输入 API Key，点击「配置并重启」即可生效。"
+	},
+	"api_key_hint_body": {
+		"en": "The key is stored in the DOTAGENT_API_KEY environment variable and never saved to config files.",
+		"zh": "Key 存储在 DOTAGENT_API_KEY 环境变量中，不会写入配置文件。"
+	},
+	"language_hint": {
+		"en": "Controls the language of the plugin UI text.\n\nNote: The Godot editor will force-localize some of the plugin's UI text.",
+		"zh": "控制插件界面文字的语言。\n\n注意: Godot 编辑器 会强制本地化该插件的部分UI的文字内容。"
+	},
 	# Time
 	"Activity": {"en": "Activity", "zh": "活动"},
 }

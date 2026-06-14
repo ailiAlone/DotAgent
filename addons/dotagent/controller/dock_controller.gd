@@ -367,8 +367,12 @@ func _inject_startup_context() -> void:
 		for n in sel:
 			names.append("%s (%s)" % [n.name, n.get_class()])
 		sel_info = "\n- 选中: " + ", ".join(names)
-	var ctx := "- 当前打开场景: %s (%d 个节点)%s" % [scene_name, node_count, sel_info]
-	_messages.append({"role": "system", "content": "[启动上下文]\n" + ctx})
+	var ctx := "[启动上下文]\n- 当前打开场景: %s (%d 个节点)%s" % [scene_name, node_count, sel_info]
+	# 优化: 合并到 messages[0].content,避免重复 system 消息
+	if _messages.size() > 0 and _messages[0].get("role", "") == "system":
+		_messages[0]["content"] = str(_messages[0].get("content", "")) + "\n\n" + ctx
+	else:
+		_messages.insert(0, {"role": "system", "content": ctx})
 
 
 func _count_nodes(node: Node) -> int:

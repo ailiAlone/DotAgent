@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3 uid="uid://d2j8l1c8oh5h0"]
+[gd_scene load_steps=4 format=3 uid="uid://d2j8l1c8oh5h0"]
 
 [ext_resource type="Script" uid="uid://ckvc056sywl77" path="res://addons/dotagent/ui/dock.gd" id="1_dock"]
+[ext_resource type="PackedScene" uid="uid://b42ro7q12pi12" path="res://addons/dotagent/ui/session.tscn" id="2_yhsp3"]
+[ext_resource type="PackedScene" uid="uid://crjd21l0kens8" path="res://addons/dotagent/ui/model_bar.tscn" id="3_688bt"]
 
 [node name="DotAgent" type="VBoxContainer"]
 anchors_preset = 15
@@ -14,125 +16,48 @@ script = ExtResource("1_dock")
 layout_mode = 2
 size_flags_vertical = 0
 
-[node name="TitleLabel" type="Label" parent="Header"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 16
-text = "deepseek-v4-flash"
-
-[node name="Spacer" type="Control" parent="Header"]
-layout_mode = 2
-size_flags_horizontal = 3
-
 [node name="ContextLabel" type="Label" parent="Header"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(0.5, 0.85, 0.5, 1)
-text = "📊 1K / 1024K"
-
-[node name="SessionButton" type="Button" parent="Header"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 4
-text = "Sessions"
-
-[node name="ClearButton" type="Button" parent="Header"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 4
-text = "Clear"
+theme_override_colors/font_color = Color(0.36, 0.84, 0.36, 1)
+text = "📊 54K / 1024K (5%)"
 
 [node name="CompactButton" type="Button" parent="Header"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-text = "Compact"
+text = "压缩"
+
+[node name="ModelSettingsButton" type="Button" parent="Header"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "模型设置"
+
+[node name="Spacer" type="Control" parent="Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SessionButton" type="Button" parent="Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+text = "会话"
 
 [node name="SettingsButton" type="Button" parent="Header"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 4
-text = "Settings"
+text = "设置"
 
-[node name="SessionPopup" type="PopupPanel" parent="Header"]
+[node name="SessionPopup" parent="Header" instance=ExtResource("2_yhsp3")]
 unique_name_in_owner = true
-oversampling_override = 1.0
-title = "Sessions"
-size = Vector2i(480, 400)
-
-[node name="SessionVBox" type="VBoxContainer" parent="Header/SessionPopup"]
-unique_name_in_owner = true
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 4.0
-offset_top = 4.0
-offset_right = -4.0
-offset_bottom = -4.0
-
-[node name="TopBar" type="HBoxContainer" parent="Header/SessionPopup/SessionVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-
-[node name="NewButton" type="Button" parent="Header/SessionPopup/SessionVBox/TopBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "New"
-
-[node name="Spacer" type="Control" parent="Header/SessionPopup/SessionVBox/TopBar"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="SearchField" type="LineEdit" parent="Header/SessionPopup/SessionVBox/TopBar"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 0)
-layout_mode = 2
-placeholder_text = "search…"
-
-[node name="SessionList" type="ItemList" parent="Header/SessionPopup/SessionVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="ActionBar" type="HBoxContainer" parent="Header/SessionPopup/SessionVBox"]
-unique_name_in_owner = true
-layout_mode = 2
-
-[node name="SwitchButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Switch"
-
-[node name="RenameButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Rename"
-
-[node name="ForkButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Fork"
-
-[node name="DeleteButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Delete"
-
-[node name="Spacer2" type="Control" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="CloseButton" type="Button" parent="Header/SessionPopup/SessionVBox/ActionBar"]
-unique_name_in_owner = true
-layout_mode = 2
-text = "Close"
 
 [node name="MessageScroll" type="ScrollContainer" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 follow_focus = true
-scroll_vertical = 4776
+scroll_vertical = 6831
 horizontal_scroll_mode = 0
 
 [node name="MessageList" type="VBoxContainer" parent="MessageScroll"]
@@ -153,7 +78,7 @@ custom_minimum_size = Vector2(0, 80)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-placeholder_text = "Ask AI to do something... (Enter to send, Shift+Enter for newline)"
+placeholder_text = "让 AI 做点什么...（回车发送，Shift+回车换行）"
 wrap_mode = 1
 
 [node name="ButtonCol" type="VBoxContainer" parent="InputBar"]
@@ -164,11 +89,15 @@ size_flags_vertical = 3
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
-text = "Send"
+text = "发送"
 
 [node name="StopButton" type="Button" parent="InputBar/ButtonCol"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 disabled = true
-text = "Stop"
+text = "停止"
+
+[node name="ModelBar" parent="." instance=ExtResource("3_688bt")]
+unique_name_in_owner = true
+layout_mode = 2
