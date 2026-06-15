@@ -62,7 +62,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "close_all_scenes",
-			"description": "Close all open scene tabs in the editor. Saves modified scenes first, then removes all tabs. Use before starting a new task to start from a clean slate.",
+			"description": "Close all open scene tabs in the editor. Saves the currently edited scene first. Note: only saves the active scene — ensure set_node_property was used (which auto-saves each change) before closing.",
 			"parameters": {"type": "object", "properties": {}},
 			"method_name": "_tool_close_all_scenes",
 			"dangerous": false,
@@ -104,7 +104,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "run_scene_capture",
-			"description": "Run a scene in headless mode and capture all stdout (including errors). Blocks the editor for a few seconds. Returns errors found + full output. Use this to autonomously detect and fix script errors. frames: how many frames to run before quit (default 60 = 1 second at 60fps).",
+			"description": "Run a scene in headless mode and capture all stdout/errors. Launches a separate Godot process that loads the scene from DISK — not from editor memory. Ensure set_node_property changes are saved (they auto-save now) before running. Blocks editor briefly.",
 			"parameters": {
 				"type": "object",
 				"properties": {

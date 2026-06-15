@@ -29,6 +29,8 @@ func _ready():
 	wave_label.text = "REACHED WAVE %d" % wave_reached
 	var is_record = final_score > 0 and final_score >= _gm().high_score
 	new_record.visible = is_record
+	if is_record:
+		_play_new_record_animation()
 	retry.text = "RETRY    再来一次"
 	menu.text = "MENU     主菜单"
 	retry.pressed.connect(_on_retry)
@@ -86,3 +88,21 @@ func _on_menu():
 	var m = preload("res://scenes/menu.tscn").instantiate()
 	main.add_child(m)
 	queue_free()
+
+func _play_new_record_animation():
+	# 金色高亮 + 弹入 + 持续脉动
+	new_record.modulate = Color(1.0, 0.85, 0.3, 1.0)
+	new_record.scale = Vector2(0.5, 0.5)
+	var t = create_tween()
+	# 弹入
+	t.tween_property(new_record, "scale", Vector2(1.3, 1.3), 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(new_record, "scale", Vector2(1.0, 1.0), 0.2)
+	# 持续脉动
+	var pulse = create_tween().set_loops()
+	pulse.tween_property(new_record, "scale", Vector2(1.08, 1.08), 0.6).set_trans(Tween.TRANS_SINE)
+	pulse.tween_property(new_record, "scale", Vector2(1.0, 1.0), 0.6).set_trans(Tween.TRANS_SINE)
+	# 颜色微变化
+	var color_tween = create_tween().set_loops()
+	color_tween.tween_property(new_record, "modulate", Color(1.0, 1.0, 0.6, 1.0), 0.8)
+	color_tween.tween_property(new_record, "modulate", Color(1.0, 0.85, 0.3, 1.0), 0.8)
+	_am().play_sfx("powerup")

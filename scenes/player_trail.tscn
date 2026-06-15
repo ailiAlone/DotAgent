@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://dxpexiqe4hupi"]
+
+[ext_resource type="Script" path="res://scripts/player_trail.gd" id="1_mcvgm"]
+
+[node name="player_trail" type="Node2D"]
+script = ExtResource("1_mcvgm")

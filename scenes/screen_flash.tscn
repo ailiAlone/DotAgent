@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://de8tnvad58ok7"]
+
+[ext_resource type="Script" path="res://scripts/screen_flash.gd" id="1_drvn2"]
+
+[node name="screen_flash" type="CanvasLayer"]
+script = ExtResource("1_drvn2")

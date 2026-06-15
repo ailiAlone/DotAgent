@@ -62,6 +62,8 @@ func _generate_sfx(type):
 		duration = 1.2
 	elif type == "wave":
 		duration = 0.6
+	elif type == "warning":
+		duration = 0.5
 	else:
 		return null
 	var frames = int(rate * duration)
@@ -105,6 +107,16 @@ func _generate_sfx(type):
 			phase += f / rate
 			phase2 += f * 1.5 / rate
 			s = (sin(phase * TAU) + sin(phase2 * TAU) * 0.5) * exp(-p * 3.0) * 0.7
+		elif type == "warning":
+			# 警示音：双音警报，3 次重复
+			var cycle = fmod(p, 0.18)
+			var in_burst = cycle < 0.08
+			if in_burst:
+				var f = 880.0
+				phase += f / rate
+				s = sin(phase * TAU) * 0.5
+			else:
+				s = 0.0
 		s = clamp(s, -1.0, 1.0)
 		var sample = int(s * 32767.0)
 		data[i * 2] = sample & 0xff

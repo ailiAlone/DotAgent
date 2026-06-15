@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://btwbfa4d05kjk"]
+
+[node name="asteroid" type="Area2D"]
+collision_layer = 4
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+
+[node name="Asteroids" type="Node2D" parent="."]
+
+[node name="AsteroidTimer" type="Timer" parent="."]
+wait_time = 8.0
+autostart = true

@@ -28,6 +28,8 @@ var lives: int = 3:
 
 var combo: int = 0
 var combo_timer: float = 0.0
+var score_multiplier: float = 1.0
+var score_multiplier_timer: float = 0.0
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -38,10 +40,12 @@ func reset_run():
 	lives = 3
 	combo = 0
 	combo_timer = 0.0
+	score_multiplier = 1.0
+	score_multiplier_timer = 0.0
 
 func add_score(amount: int):
-	var multiplier = 1 + combo / 10
-	score += amount * multiplier
+	var multiplier = (1 + combo / 10) * score_multiplier
+	score += int(amount * multiplier)
 	combo += 1
 	combo_timer = 2.0
 
@@ -50,6 +54,10 @@ func tick_combo(delta: float):
 		combo_timer -= delta
 		if combo_timer <= 0:
 			combo = 0
+	if score_multiplier > 1.0:
+		score_multiplier_timer -= delta
+		if score_multiplier_timer <= 0:
+			score_multiplier = 1.0
 
 func load_high_score():
 	if not FileAccess.file_exists(SAVE_PATH):

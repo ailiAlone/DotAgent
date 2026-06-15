@@ -23,8 +23,10 @@ func _ready():
 	best_label.text = "BEST  %06d" % _gm().high_score
 	start_btn.text = "START    开始"
 	quit_btn.text = "QUIT     退出"
-	controls.text = "[WASD / 方向键] 移动     [SPACE] 射击     [ESC] 暂停"
-	credits.text = "v1.0 · Made with Godot 4"
+	controls.text = "[WASD / 方向键] 移动     [SPACE / J] 射击     [L] 冲刺     [SHIFT] 散射     [ESC] 暂停"
+	credits.text = "v2.0 · 6 enemies · 5 powerups · 5 weapon levels · formations · asteroids"
+	# 标题呼吸效果（缩放 + 颜色脉动）
+	_animate_title()
 	start_btn.pressed.connect(_on_start)
 	quit_btn.pressed.connect(_on_quit)
 	start_btn.grab_focus()
@@ -50,3 +52,9 @@ func _on_start():
 func _on_quit():
 	_am().play_sfx("click")
 	get_tree().quit()
+
+func _animate_title():
+	# 标题呼吸缩放（持续循环）
+	var tw = create_tween().set_loops()
+	tw.tween_property(title, "scale", Vector2(1.05, 1.05), 1.5).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(title, "scale", Vector2(0.97, 0.97), 1.5).set_trans(Tween.TRANS_SINE)

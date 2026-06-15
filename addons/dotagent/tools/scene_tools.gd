@@ -303,9 +303,11 @@ func _resolve_node(path: String) -> Node:
 	# AI often uses root node name, has_node doesn't recognize self
 	if path == root.name:
 		return root
-	if not root.has_node(path):
-		return null
-	return root.get_node(path)
+	# 含 / 的路径走标准 NodePath 解析
+	if path.contains("/"):
+		return root.get_node_or_null(NodePath(path))
+	# 单段名称：递归搜索（对齐 has_node 的递归行为，避免 has_node/g et_node 不一致）
+	return root.find_child(path, true, false)
 
 
 func _reown(node: Node, root: Node) -> void:
@@ -324,12 +326,20 @@ func _emit_change() -> void:
 	if root == null:
 		return
 	if root.scene_file_path.is_empty():
-		_log_act("log_warning", "Scene has no file path (new scene). Save it manually first.")
+		_log_act("log_warning", "Scene has no file path (new scene). Use create_scene which auto-saves, then set_node_property.")
 		return
 	# 保存前先备份磁盘上的旧版本
 	_get_backup().backup(root.scene_file_path)
-	# 直接同步保存，不依赖 call_deferred（在异步 ReAct 流程中可能被丢弃）
-	ei.save_scene()
+	# 使用 PackedScene.pack() + ResourceSaver 直接写盘，比 ei.save_scene() 更可靠
+	var packed := PackedScene.new()
+	var err := packed.pack(root)
+	if err != OK:
+		_log_act("log_error", "Failed to pack scene: " + error_string(err))
+		return
+	err = ResourceSaver.save(packed, root.scene_file_path)
+	if err != OK:
+		_log_act("log_error", "Failed to save scene: " + error_string(err))
+		return
 	_log_act("log_info", "✅ Auto-saved: " + root.scene_file_path)
 	_logger.append("SCENE", "Auto-saved: " + root.scene_file_path)
 

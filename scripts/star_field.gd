@@ -44,3 +44,19 @@ func _draw():
 		draw_circle(s.pos, s.size, c)
 		if s.size > 2.0:
 			draw_circle(s.pos, s.size * 2.8, Color(c.r, c.g, c.b, c.a * 0.12))
+
+
+
+# 阶段调色板：每过一个 Stage（5波）改变星空色相
+func set_palette(stage: int):
+	var hue_shift = float((stage - 1) % 6) * 0.16
+	var palette = [
+		Color.from_hsv(fmod(0.58 + hue_shift, 1.0), 0.2, 1.0, 0.65),
+		Color.from_hsv(fmod(0.60 + hue_shift, 1.0), 0.1, 1.0, 0.85),
+		Color.from_hsv(fmod(0.62 + hue_shift, 1.0), 0.05, 1.0, 1.0),
+	]
+	for i in range(3):
+		layers[i]["color"] = palette[i]
+		for s in stars:
+			if abs(s.color.get_luminance() - layers[i]["color"].get_luminance()) < 0.3:
+				s.color = palette[i]

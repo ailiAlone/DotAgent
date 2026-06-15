@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3 uid="uid://cbwj7b6hwxtlp"]
+
+[ext_resource type="Script" path="res://scripts/boss.gd" id="1_dlmty"]
+
+[node name="boss" type="Area2D"]
+script = ExtResource("1_dlmty")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]

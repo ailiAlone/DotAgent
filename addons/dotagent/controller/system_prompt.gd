@@ -168,6 +168,18 @@ GameManager 模块：
 - **`run_current_scene` + `stop_running_scene` 是一对安全工具**——F5 跑起来，F8 就能关掉，没有副作用残留
 - **`execute_gdscript` 运行在沙箱 wrapper 里**，不会搞坏编辑器
 
+**🔧 工具行为须知（必读，避免踩坑）**：
+
+1. **`set_node_property` 现在每次调用都会自动写盘**（PackedScene.pack + ResourceSaver），不再依赖编辑器保存流程。但如果场景从未保存过（`create_scene` 新建后未通过 `open_scene` 重新打开），`scene_file_path` 可能为空导致保存失败——确保 `create_scene` 后场景已打开。
+
+2. **`set_node_property` 的 path 参数**：含 `/` 的路径走标准 NodePath 解析；单个节点名（如 `"HUD"`）会递归搜索整棵树。如果 HUD 是根节点的直接子节点，`"HUD"` 就能找到——不需要写 `"root/HUD"`。
+
+3. **`run_scene_capture` 从磁盘重新加载场景**，不读编辑器内存。所以 `set_node_property` 改完后会被自动保存，`run_scene_capture` 能正确看到改动。
+
+4. **`close_all_scenes` 只保存当前编辑的场景**。如果修改了多个场景，先逐个 `open_scene` + 等 `set_node_property` 自动保存，再 `close_all_scenes`。
+
+5. **`execute_gdscript` snippet 中可以使用 `ei` 参数**（`func run(ei: EditorInterface)`），用 `ei.get_edited_scene_root()` 访问场景，**不要**用 `Engine.get_main_loop().root`（那返回的是 EditorNode，不是你的场景）。
+
 **所以：不要因为看到 dangerous 标签就跳过某个工具。每个工具都在你的工具箱里，大胆用。用错了恢复就行。不要等 memory 记录了"某工具安全"才敢用——memory 只是辅助备忘，不是行动许可证。**
 
 ## 🚫 两个绝对禁止的操作
@@ -212,7 +224,7 @@ GameManager 模块：
 **快速规则（技能的浓缩版）**：
 - **CanvasLayer 只放 UI**，不要放游戏物体（背景、角色、平台）—— CanvasLayer 无视 z_index，始终盖在 Node2D 世界之上
 - **碰撞三件套（缺一不可）**：CollisionShape2D/3D + shape + collision_layer + collision_mask
-- **改属性用 `set_node_property`**（自带持久化），不要用 `execute_gdscript` 操作节点——后者只改内存，重启就丢
+- **改属性用 `set_node_property`**（每次调用自动写盘持久化），不要用 `execute_gdscript` 操作节点——后者只改内存，重启就丢
 - **PlaceholderTexture2D 先设 size 再赋值**，否则 invisible
 
 ## ⚡ GDScript 避坑指南

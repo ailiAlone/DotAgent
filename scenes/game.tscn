@@ -1,10 +1,11 @@
-[gd_scene load_steps=11 format=3 uid="uid://dgame"]
+[gd_scene load_steps=7 format=3 uid="uid://dgame"]
 
-[ext_resource type="Script" path="res://scripts/game.gd" id="1_ga"]
-[ext_resource type="PackedScene" uid="uid://dplayer_p" path="res://scenes/player.tscn" id="2_pl"]
+[ext_resource type="Script" uid="uid://vxp2fwwxdqa8" path="res://scripts/game.gd" id="1_ga"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_pl"]
 [ext_resource type="PackedScene" uid="uid://dstarfield" path="res://scenes/star_field.tscn" id="3_sf"]
 [ext_resource type="PackedScene" uid="uid://dhud" path="res://scenes/hud.tscn" id="4_hd"]
 [ext_resource type="PackedScene" uid="uid://dpausemenu" path="res://scenes/pause_menu.tscn" id="5_pm"]
+[ext_resource type="Script" uid="uid://cfpb77eqsv84d" path="res://scripts/screen_flash.gd" id="6_p57ef"]
 
 [node name="Game" type="Node2D"]
 script = ExtResource("1_ga")
@@ -30,17 +31,13 @@ offset_left = 440.0
 offset_top = 280.0
 offset_right = 840.0
 offset_bottom = 380.0
+theme_override_colors/font_color = Color(1, 1, 0.4, 1)
+theme_override_colors/font_outline_color = Color(0.2, 0.1, 0, 1)
+theme_override_constants/outline_size = 4
 theme_override_font_sizes/font_size = 56
 text = "WAVE 1"
 horizontal_alignment = 1
 vertical_alignment = 1
-theme_override_colors/font_color = Color(1, 1, 0.4, 1)
-theme_override_colors/font_outline_color = Color(0.2, 0.1, 0, 1)
-theme_override_constants/outline_size = 4
-
-[node name="HUD" parent="." instance=ExtResource("4_hd")]
-
-[node name="PauseMenu" parent="." instance=ExtResource("5_pm")]
 
 [node name="SpawnTimer" type="Timer" parent="."]
 wait_time = 1.4
@@ -50,3 +47,21 @@ wait_time = 9.0
 
 [node name="WaveTimer" type="Timer" parent="."]
 wait_time = 30.0
+
+[node name="ScreenFlash" type="CanvasLayer" parent="."]
+unique_name_in_owner = true
+script = ExtResource("6_p57ef")
+
+[node name="UI_Layer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="HUD" parent="UI_Layer" instance=ExtResource("4_hd")]
+
+[node name="PauseMenu" parent="UI_Layer" instance=ExtResource("5_pm")]
+layout_mode = 3
+
+[node name="Asteroids" type="Node2D" parent="."]
+
+[node name="AsteroidTimer" type="Timer" parent="."]
+wait_time = 8.0
+autostart = true

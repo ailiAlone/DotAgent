@@ -185,7 +185,7 @@ func _on_send_pressed() -> void:
 
 
 func _on_stop_pressed() -> void:
-	_controller.abort()
+	_controller.abort_current()
 
 
 ## ModelPicker 选中模型 → 写入 config（仅改模型名，vision/context 由模型设置页面管理）

@@ -6,7 +6,7 @@ static func _gm():
 static func _am():
 	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
 
-enum PowerupType { HEAL, RAPID_FIRE, SHIELD }
+enum PowerupType { HEAL, RAPID_FIRE, SHIELD, BOMB, SCORE_X2 }
 
 var powerup_type: PowerupType = PowerupType.HEAL
 var velocity := Vector2(0, 120)
@@ -20,6 +20,8 @@ func _ready():
 		PowerupType.HEAL: color = Color(0.3, 1.0, 0.4)
 		PowerupType.RAPID_FIRE: color = Color(1.0, 0.85, 0.2)
 		PowerupType.SHIELD: color = Color(0.3, 0.8, 1.0)
+		PowerupType.BOMB: color = Color(1.0, 0.3, 0.2)
+		PowerupType.SCORE_X2: color = Color(0.9, 0.3, 1.0)
 	add_to_group("powerups")
 
 func _process(delta):
@@ -47,3 +49,18 @@ func _draw():
 			draw_line(Vector2(0, -2), Vector2(7, 4), Color.WHITE, 2)
 		PowerupType.SHIELD:
 			draw_arc(Vector2.ZERO, 7, 0, TAU, 16, Color(1, 1, 1, 0.7), 2)
+		PowerupType.BOMB:
+			# 炸弹图标：星爆
+			for i in 8:
+				var a = TAU / 8.0 * i + t * 0.5
+				var p1 = Vector2(cos(a) * 4, sin(a) * 4)
+				var p2 = Vector2(cos(a) * 9, sin(a) * 9)
+				draw_line(p1, p2, Color.WHITE, 2)
+			draw_circle(Vector2(0, 0), 3, Color.WHITE)
+		PowerupType.SCORE_X2:
+			# X2 文字
+			draw_line(Vector2(-7, -7), Vector2(7, 7), Color.WHITE, 2)
+			draw_line(Vector2(-7, 7), Vector2(7, -7), Color.WHITE, 2)
+			# 上下两条小横
+			draw_line(Vector2(-3, -10), Vector2(3, -10), Color.WHITE, 2)
+			draw_line(Vector2(-3, 10), Vector2(3, 10), Color.WHITE, 2)
