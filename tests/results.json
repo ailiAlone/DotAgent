@@ -1,0 +1,29 @@
+{
+	"tests": [
+		{
+			"detail": "OK",
+			"name": "agent_node.gd compiles + _read_files",
+			"ok": true
+		},
+		{
+			"detail": "OK",
+			"name": "plugin.gd compiles",
+			"ok": true
+		},
+		{
+			"detail": "OK",
+			"name": "node_tools.json valid (has 29 tools including new discovery tools)",
+			"ok": true
+		},
+		{
+			"detail": "All required sections present",
+			"name": "node_prompt.md content",
+			"ok": true
+		},
+		{
+			"detail": "list_files is registered in file_tools.gd",
+			"name": "list_files in ToolRegistry",
+			"ok": true
+		}
+	]
+}

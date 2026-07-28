@@ -1,0 +1,21 @@
+Cortex Tool Test Results
+========================
+Time: 2026-07-24T09:22:20
+Godot: 4.5-stable (official)
+Pass: 5 / Fail: 0 / Total: 5
+
+✅ EditorInterface 可用性
+   场景根节点: Game (Node2D), 路径: res://scenes/game.tscn
+
+✅ 脚本接口提取
+   5 个信号, 8 个公开方法, 7 个私有方法, 5 个 export, 0 个 enum
+
+✅ 场景树结构化读取
+   46 个节点, 6 个有脚本, 203 个信号连接, 组: [&"_root_canvas4737348927494", &"__cameras_4741643894790", &"__cameras_c4737348927494", &"_root_canvas4445441475216926", &"_vp_unhandled_input60045659109"]
+
+✅ ClassDB 工具验证
+   13/13 类型可用
+
+✅ 资源接口提取
+   StyleBoxFlat 有 31 个可编辑属性
+

@@ -1,0 +1,17 @@
+{
+  "classdb_area2d": true,
+  "classdb_styleboxflat": true,
+  "game_tscn_exists": true,
+  "godot_version": "4.5-stable (official)",
+  "headless": true,
+  "instances": {
+    "Area2D": true,
+    "Node2D": true,
+    "RectangleShape2D": true,
+    "Sprite2D": true,
+    "StyleBoxFlat": true
+  },
+  "ok": true,
+  "player_gd_exists": true,
+  "project_name": "Star Hunter - 星海猎手"
+}
