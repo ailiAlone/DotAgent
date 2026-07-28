@@ -35,12 +35,19 @@ func write(trace_data: Dictionary) -> Dictionary:
 	if not DirAccess.dir_exists_absolute(dir_path):
 		DirAccess.make_dir_recursive_absolute(dir_path)
 
+	# 按运行开始时间命名，避免同一 session 内多次运行互相覆盖
+	var stamp: String = str(trace_data.get("started_at", ""))
+	if stamp.is_empty():
+		stamp = Time.get_datetime_string_from_system()
+	stamp = stamp.replace(":", "-").replace(" ", "_")
+	var base_name: String = "run_" + stamp
+
 	# 1. 写 JSON
-	var json_path: String = dir_path.path_join("run_log.json")
+	var json_path: String = dir_path.path_join(base_name + ".json")
 	var json_ok: bool = _write_json(json_path, trace_data)
 
 	# 2. 写 Markdown
-	var md_path: String = dir_path.path_join("run_log.md")
+	var md_path: String = dir_path.path_join(base_name + ".md")
 	var md_ok: bool = _write_markdown(md_path, trace_data)
 
 	if _logger:

@@ -19,6 +19,7 @@ const BANYAN_MANAGEMENT_TOOLS := [
 	"route_to_child",
 	"wait_for_children",
 	"list_children",
+	"claim_files",
 	# Knowledge 工具（可选，保留向后兼容）
 	"save_knowledge",
 	"query_knowledge",

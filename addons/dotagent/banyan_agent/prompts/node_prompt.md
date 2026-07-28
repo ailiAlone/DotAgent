@@ -70,14 +70,18 @@ Each child grows the tree. The tree is the agent.
 - `query_knowledge` — recall stored knowledge
 - `search_knowledge` — search across stored knowledge
 
+### File Ownership
+- `claim_files(paths, action)` — **declare which files belong to your domain.** After exploring your area and understanding the files, call this to claim responsibility. This is YOUR active choice — nobody else decides for you. Use `action: "set"` to replace, `"add"` to append, `"remove"` to release. Claimed files show as your `managed_files` in the tree UI.
+
 ## Rules
 
 - **Discover first.** Call `list_files` before reading files blindly. Know what exists before diving in.
-- **Read, then summarize.** After reading a script, immediately note in your thinking: what it does, its key functions, signals, and dependencies. This internal summary means you never need to re-read that file. If you catch yourself reading the same file again, STOP — use what you already learned.
+- **Read once, remember it.** After reading a script, note its key functions, signals, and dependencies. If your parent provided a File Index with summaries, use those instead of re-reading. Only read a file yourself if you need details the summary doesn't cover.
 - Read before you write. Understand before you modify.
 - Verify your changes (`check_script_syntax` after code changes).
-- Be concise in your final summary.
-- **Never read the same file twice.** If you already read it, use what you learned.
+- **Structured summary.** Your final summary should distill the architecture, not list every file. Include: system modules and responsibilities, key functions/signals, dependencies, and issues found.
+- **Don't re-read what you already know.** If you already read a file, use what you learned instead of reading it again.
+- **Claim your files.** After you have explored and understood your domain, call `claim_files` with the paths you are responsible for. This is how you declare ownership — it's a conscious decision, not automatic. Do it once you know what belongs to you.
 - **If a tool fails, do not retry the same call.** Try a different approach or move on.
 
 ## When to Save Knowledge

@@ -48,6 +48,7 @@ var _headers: PackedStringArray = PackedStringArray()
 # ============ 累积结果 ============
 
 var accumulated_content: String = ""
+var accumulated_reasoning: String = ""
 var accumulated_tool_calls: Array = []
 var accumulated_finish_reason: String = ""
 
@@ -263,6 +264,9 @@ func _process_parser_chunks() -> void:
 				var content: String = chunk.get("content", "")
 				if not content.is_empty():
 					accumulated_content += content
+				var reasoning: String = chunk.get("reasoning", "")
+				if not reasoning.is_empty():
+					accumulated_reasoning += reasoning
 			"tool_call":
 				pass  # tool_call 由 parser 内部累积，结束后一次性获取
 			"done":
@@ -283,6 +287,9 @@ func _finish_stream() -> void:
 			var content: String = chunk.get("content", "")
 			if not content.is_empty():
 				accumulated_content += content
+			var reasoning: String = chunk.get("reasoning", "")
+			if not reasoning.is_empty():
+				accumulated_reasoning += reasoning
 	accumulated_tool_calls = parser.get_accumulated_tool_calls() if parser else []
 	# 如果 finish_reason 为空，从最后一个 chunk 推断
 	if accumulated_finish_reason.is_empty():
@@ -306,6 +313,7 @@ func _touch_activity() -> void:
 
 func _reset_results() -> void:
 	accumulated_content = ""
+	accumulated_reasoning = ""
 	accumulated_tool_calls = []
 	accumulated_finish_reason = ""
 	error_message = ""

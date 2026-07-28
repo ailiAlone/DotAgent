@@ -419,6 +419,7 @@ func run_banyan(user_request: String, base_url: String = "", api_key: String = "
 		var n: AgentNode = _agent_tree.get_all_nodes()[nid]
 		if n.parent_id == "Root" and n.node_id != "Root":
 			_root._children[n.node_id] = n
+			n._parent_ref = weakref(_root)  # 轮数预算申请通道
 			_root._pending_children[n.node_id] = true  # 标记为已完成（上次的状态）
 	if _root._children.size() > 0:
 		_logger.append("CTX", "Loaded %d existing children for Root" % _root._children.size())
@@ -432,20 +433,21 @@ func run_banyan(user_request: String, base_url: String = "", api_key: String = "
 			prior.append(_messages[i])
 		_root.prior_messages = prior
 
-	# 连接信号
-	_root.progress_chunk.connect(func(chunk: String): worker_progress.emit("Root", chunk))
-	_root.progress_done.connect(func():
-		var report: Dictionary = _root.generate_report()
-		_logger.append("CTX", "Banyan complete: rounds=%d, children=%d, files=%d" % [
-			report.get("rounds", 0),
-			report.get("children_count", 0),
-			report.get("files", []).size(),
-		])
-		var summary: String = report.get("summary", "")
-		_append_assistant_to_conversation(summary)
-		banyan_done.emit(report)
-	)
-	_root.progress_error.connect(func(err: String): worker_error.emit("Root", err))
+	# 连接信号 — 每次 run_banyan 都会执行到这里，而 _root 是持久节点，
+	# 必须用稳定方法引用 + is_connected 守卫，防止处理器随对话轮数累积（消息重复入库的根因）
+	if not _root.progress_chunk.is_connected(_on_root_chunk):
+		_root.progress_chunk.connect(_on_root_chunk)
+	if not _root.progress_done.is_connected(_on_root_done):
+		_root.progress_done.connect(_on_root_done)
+	if not _root.progress_error.is_connected(_on_root_error):
+		_root.progress_error.connect(_on_root_error)
+	# Agent Graph 实时刷新：整棵树的状态切换 + 工具调用开始/结束都会沿父链冒泡到 Root
+	if not _root.state_changed.is_connected(_on_graph_dirty):
+		_root.state_changed.connect(_on_graph_dirty)
+	if not _root.progress_tool_started.is_connected(_on_graph_dirty):
+		_root.progress_tool_started.connect(_on_graph_dirty)
+	if not _root.progress_tool_finished.is_connected(_on_graph_dirty):
+		_root.progress_tool_finished.connect(_on_graph_dirty)
 
 	# 构建 ticket 并异步运行
 	var ticket: Dictionary = {
@@ -566,11 +568,40 @@ func _get_conversation_messages() -> Array:
 
 
 func _append_assistant_to_conversation(summary: String) -> void:
-	if not summary.is_empty():
-		_messages.append({"role": "assistant", "content": summary})
-		_save_session()
-		if _banyan_dock:
-			_banyan_dock.rebuild_messages(_get_conversation_messages())
+	if summary.is_empty():
+		return
+	# 幂等守卫：与最后一条完全相同则跳过（信号重复或重复完成的兜底）
+	if not _messages.is_empty():
+		var last: Dictionary = _messages.back()
+		if last.get("role", "") == "assistant" and str(last.get("content", "")) == summary:
+			return
+	_messages.append({"role": "assistant", "content": summary})
+	_save_session()
+	if _banyan_dock:
+		_banyan_dock.rebuild_messages(_get_conversation_messages())
+
+
+## Root 信号处理器（稳定方法引用，保证跨任务只连接一次）
+func _on_root_chunk(chunk: String) -> void:
+	worker_progress.emit("Root", chunk)
+
+
+func _on_root_done() -> void:
+	var report: Dictionary = _root.generate_report()
+	_logger.append("CTX", "Banyan complete: rounds=%d, children=%d, files=%d" % [
+		report.get("rounds", 0),
+		report.get("children_count", 0),
+		report.get("files", []).size(),
+	])
+	# 先 emit 让 dock 正常收尾流式气泡，再入库并 rebuild —
+	# 反过来的话 rebuild 的 clear_all 会先把 _stream_node 置空，
+	# 导致 done 处理误判"无流式"而重复追加总结（对话栏出现两条相同总结）
+	banyan_done.emit(report)
+	_append_assistant_to_conversation(report.get("summary", ""))
+
+
+func _on_root_error(err: String) -> void:
+	worker_error.emit("Root", err)
 
 
 # ============ 设置 & 会话 UI ============
@@ -809,13 +840,17 @@ Each child grows the tree. The tree is the agent.
 ### Knowledge
 - save_knowledge, query_knowledge, search_knowledge
 
+### File Ownership
+- claim_files(paths, action) — declare which files belong to your domain. After exploring your area, call this to claim responsibility. This is YOUR active choice. action: set (replace), add (append), remove (release).
+
 ## Rules
 - Discover first. Call list_files before reading files blindly.
-- Read, then summarize. After reading a script, note in your thinking: what it does, key functions, signals, dependencies. Never need to re-read. If you catch yourself reading the same file again, STOP.
+- Read once, remember it. If your parent provided a File Index with summaries, use those instead of re-reading. Only read a file yourself if you need details the summary doesn't cover.
 - Read before you write. Understand before you modify.
 - Verify your changes.
-- Be concise in your final summary.
-- Never read the same file twice.
+- Structured summary. Distill the architecture, not list every file. Include: system modules, key functions/signals, dependencies, issues found.
+- Don't re-read what you already know.
+- Claim your files. After exploring and understanding your domain, call claim_files with the paths you are responsible for. This is how you declare ownership — a conscious decision, not automatic.
 - If a tool fails, do not retry the same call.
 
 ## File Organization
@@ -992,17 +1027,12 @@ func _on_dock_worker_error(wid: String, error: String) -> void:
 
 func _on_dock_banyan_done(report: Dictionary) -> void:
 	if _banyan_dock:
-		# 检查是否有活跃的流式输出
-		var had_stream: bool = _banyan_dock._stream_node != null
 		_banyan_dock.end_stream()
 		_banyan_dock.set_running(false)
 		_banyan_dock.set_banyan_status("Completed", Color(0.2, 0.8, 0.2))
 
-		# Root 级别的总结 — 仅在流式未输出时兜底
-		var root_summary: String = report.get("summary", "")
-		if not had_stream and not root_summary.is_empty():
-			_banyan_dock.append_assistant_message(root_summary, "Root")
-
+		# 总结的唯一渲染路径是 _append_assistant_to_conversation → rebuild_messages，
+		# 这里不再兜底追加（否则与 rebuild 渲染的气泡重复）
 		_banyan_dock.add_log("Banyan completed: rounds=%d, children=%d, files=%d" % [
 			report.get("rounds", 0),
 			report.get("children_count", 0),
@@ -1014,12 +1044,18 @@ func _on_dock_banyan_done(report: Dictionary) -> void:
 	_sync_agent_tree()
 
 
-## 节流版树刷新 — 流式输出期间最多每2秒刷新一次 Agent Tree 图
+## 节流版树刷新 — 运行期间最多每0.5秒刷新一次 Agent Graph
+## 由 state_changed / progress_tool_started / progress_tool_finished 驱动；
+## LLM 流式期间由节点的流式心跳（state_changed, ~2次/秒）驱动，图上有实时流入量
+func _on_graph_dirty(_a = null, _b = null) -> void:
+	_throttled_tree_refresh()
+
+
 func _throttled_tree_refresh() -> void:
 	if _tree_refresh_timer == null:
 		_tree_refresh_timer = Timer.new()
 		_tree_refresh_timer.one_shot = true
-		_tree_refresh_timer.wait_time = 2.0
+		_tree_refresh_timer.wait_time = 0.5
 		_tree_refresh_timer.timeout.connect(_on_tree_refresh_timeout)
 		if _host_node:
 			_host_node.add_child(_tree_refresh_timer)
@@ -1049,9 +1085,11 @@ func _refresh_dock_tree() -> void:
 		"root_id": str(_root.node_id),
 		"root_state": _state_to_string(_root.node_state),
 		"rounds": _root.get_round_count(),
-		"files": _root.get_files_created(),
-		"domain_knowledge": "",
-		"history": [],
+		"files": _root.managed_files.duplicate(),
+		"ctx_size": _root.get_ctx_size(),
+		"stream_chars": _root._stream_chars,
+		"domain_knowledge": _root.domain_knowledge,
+		"history": _root.history.duplicate() if _root.history is Array else [],
 		"children": _build_child_tree_data(_root),
 	}
 
@@ -1099,19 +1137,13 @@ func _build_child_tree_data(parent_node) -> Dictionary:
 		var child_data: Dictionary = {
 			"state": _state_to_string(child.node_state),
 			"rounds": child.get_round_count(),
-			"files": child.get_files_created(),
-			"domain_knowledge": "",
-			"history": [],
+			"files": child.managed_files.duplicate(),
+			"ctx_size": child.get_ctx_size(),
+			"stream_chars": child._stream_chars,
+			"domain_knowledge": child.domain_knowledge,
+			"history": child.history.duplicate() if child.history is Array else [],
 			"children": _build_child_tree_data(child),
 		}
-		# 从最后一条 assistant 消息提取摘要
-		for i in range(child.messages.size() - 1, -1, -1):
-			var msg: Dictionary = child.messages[i]
-			if msg.get("role", "") == "assistant":
-				var content = msg.get("content", "")
-				if content != null and str(content) != "":
-					child_data["domain_knowledge"] = str(content).substr(0, 200)
-					break
 		result[cname] = child_data
 	return result
 
@@ -1124,4 +1156,5 @@ func _state_to_string(state: int) -> String:
 		3: return "TOOL_EXEC"
 		4: return "COMPLETED"
 		5: return "FAILED"
+		6: return "RETRYING"
 		_: return "UNKNOWN"

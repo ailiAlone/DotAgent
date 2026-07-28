@@ -12,16 +12,19 @@ signal progress_tool_started(tool_name: String)
 signal progress_tool_finished(tool_name: String, ok: bool)
 signal progress_done()
 signal progress_error(error: String)
+## 树状态变化通知 — 节点状态切换 / 子节点诞生时发射，供 UI 实时刷新 Agent Graph
+signal state_changed(node_id: String)
 
 const Pool = preload("res://addons/dotagent/banyan_agent/http/http_client_pool.gd")
 const ReqSlot = preload("res://addons/dotagent/banyan_agent/http/request_slot.gd")
 const MsgBldr = preload("res://addons/dotagent/banyan_agent/context/message_builder.gd")
 const BanyanToolExecutor = preload("res://addons/dotagent/banyan_agent/tools/tool_executor.gd")
 
-const MAX_ROUNDS := 15
-const MAX_FAILURES := 2
+const ROUND_BUDGET_DEFAULT := 15  # 非 Root 节点每次运行的初始轮数预算（Root 无限）
+const ROUND_GRANT_SIZE := 10      # 预算耗尽时向父级申请获批的轮数
+const MAX_FAILURES := 3        # 连续 LLM 失败熔断次数 — 故障熔断，与轮数预算无关
 const ROUND_DELAY := 0.3
-const MAX_CHILDREN := 8
+const MAX_CHILDREN := 0        # 0 = 无限制
 const CHILD_TIMEOUT := 600.0
 
 const ACTION_EXECUTE := "execute"
@@ -32,7 +35,7 @@ const ACTION_FAILED := "failed"
 
 # ============ 状态 ============
 
-enum NodeState { IDLE, RUNNING, LLM_REQUEST, TOOL_EXEC, COMPLETED, FAILED }
+enum NodeState { IDLE, RUNNING, LLM_REQUEST, TOOL_EXEC, COMPLETED, FAILED, RETRYING }
 
 var node_state: NodeState = NodeState.IDLE
 var messages: Array = []
@@ -79,17 +82,28 @@ var prior_messages: Array = []
 
 var _current_slot = null
 var _round_count: int = 0
+var _round_budget: int = -1        # 剩余轮数预算；-1 = 无限（仅 Root）
+var _parent_ref: WeakRef = null    # 父节点弱引用 — 用于申请轮数（弱引用避免引用环）
 var _failure_count: int = 0
 var _abort_requested: bool = false
 var _files_created: Array = []
 var _read_files: Array = []
+var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
+
+# ============ 上下文大小增量缓存 ============
+
+var _ctx_size_cache: int = -1      # -1 = 未计算
+var _ctx_msg_count: int = 0        # 缓存统计到的消息数
 
 # ============ 执行轨迹 ============
 
 var _execution_trace: Dictionary = {}
 var _run_start_time: float = 0.0
 var _current_round_trace: Dictionary = {}
+var _last_reasoning: String = ""    # 最近一次 LLM 响应的推理流（reasoning_content）
+var _stream_chars: int = 0          # 本次请求已流入的字符数（content + reasoning）— 供 Agent Graph 显示流式进度
+var _last_stream_notify: int = 0    # 流式心跳节流（msec）
 
 
 # ============ 初始化 ============
@@ -119,16 +133,50 @@ func configure_llm(base_url: String, api_key: String, model: String, max_tokens:
 ## 如果 LLM 只调用工具而不解释为什么要做，这不是真正的推理 — 是盲动。
 ## 当检测到"无思考行动"时，要求 LLM 先解释再执行。
 
+## 统一的状态切换入口 — 发射 state_changed 供 Agent Graph 实时刷新
+func _set_node_state(s: NodeState) -> void:
+	if node_state == s:
+		return
+	node_state = s
+	state_changed.emit(node_id)
+
+
+## 上下文总大小（字符数）— 增量缓存：messages 只增不减，每次只统计新增部分
+## messages 被整体替换时必须调用 _invalidate_ctx_cache()
+func get_ctx_size() -> int:
+	if _ctx_size_cache >= 0 and _ctx_msg_count == messages.size():
+		return _ctx_size_cache
+	if _ctx_size_cache < 0 or messages.size() < _ctx_msg_count:
+		_ctx_size_cache = 0
+		_ctx_msg_count = 0
+	for i in range(_ctx_msg_count, messages.size()):
+		var msg: Dictionary = messages[i]
+		var content = msg.get("content", "")
+		if content != null:
+			_ctx_size_cache += str(content).length()
+		if msg.has("tool_calls"):
+			_ctx_size_cache += JSON.stringify(msg.get("tool_calls", [])).length()
+	_ctx_msg_count = messages.size()
+	return _ctx_size_cache
+
+
+func _invalidate_ctx_cache() -> void:
+	_ctx_size_cache = -1
+	_ctx_msg_count = 0
+
 func run(ticket: Dictionary = {}) -> void:
 	if _pool == null:
 		progress_error.emit("Pool not set")
 		return
 
-	node_state = NodeState.RUNNING
+	_set_node_state(NodeState.RUNNING)
 	_abort_requested = false
 	_round_count = 0
+	# 轮数预算：Root（无父节点）无限；非 Root 节点带初始预算，耗尽后向父级申请
+	_round_budget = -1 if parent_id.is_empty() else ROUND_BUDGET_DEFAULT
 	_failure_count = 0
 	_files_created.clear()
+	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
 	_execution_trace = {
@@ -143,6 +191,7 @@ func run(ticket: Dictionary = {}) -> void:
 	}
 
 	messages = [{"role": "system", "content": system_prompt}]
+	_invalidate_ctx_cache()
 
 	# 注入节点自身的持久化上下文 — 让节点醒来时知道自己是谁
 	var ctx: String = _build_node_context()
@@ -160,26 +209,35 @@ func run(ticket: Dictionary = {}) -> void:
 	var _total_tool_calls: int = 0
 
 	while not _abort_requested:
-		if _round_count >= MAX_ROUNDS:
-			_log("Hit max rounds (%d)" % MAX_ROUNDS)
-			node_state = NodeState.FAILED
-			progress_error.emit("Max rounds reached")
-			break
+		# ── 轮数预算：耗尽时向父级申请；被拒（如父链断开）则正常收束，不算失败 ──
+		if _round_budget == 0:
+			var granted: int = await _request_rounds_from_parent()
+			if granted <= 0:
+				_log("Round budget exhausted, parent denied grant — converging after %d rounds" % _round_count)
+				break
+			_round_budget = granted
 
-		node_state = NodeState.LLM_REQUEST
+		_set_node_state(NodeState.LLM_REQUEST)
 		var llm_ok: bool = await _do_llm_request()
 
 		if not llm_ok:
 			_failure_count += 1
 			if _failure_count >= MAX_FAILURES:
-				node_state = NodeState.FAILED
-				progress_error.emit("Failed after %d errors" % _failure_count)
+				_log("LLM failed %d times consecutively — circuit breaker open" % _failure_count)
+				_set_node_state(NodeState.FAILED)
+				progress_error.emit("Failed after %d consecutive errors" % _failure_count)
 				break
-			await _delay(1.0)
+			# 熔断前的重试：退避等待 + RETRYING 状态上图，让故障可见
+			_set_node_state(NodeState.RETRYING)
+			var backoff: float = [1.0, 5.0, 15.0][mini(_failure_count, 3) - 1]
+			_log("LLM error %d/%d — retrying in %.0fs" % [_failure_count, MAX_FAILURES, backoff])
+			await _delay(backoff)
 			continue
 
 		_failure_count = 0
 		_round_count += 1
+		if _round_budget > 0:
+			_round_budget -= 1
 		_current_round_trace = {"round": _round_count, "llm_preview": "", "tools": []}
 
 		var action: String = _analyze_response(_nudged, _redirected, _total_tool_calls)
@@ -190,6 +248,9 @@ func run(ticket: Dictionary = {}) -> void:
 		var llm_content = messages.back().get("content", "")
 		if llm_content != null and not str(llm_content).is_empty():
 			_current_round_trace["llm_preview"] = str(llm_content).substr(0, 300)
+		elif not _last_reasoning.is_empty():
+			# content 为空时用推理流做预览 — 运行日志能看到节点在想什么
+			_current_round_trace["llm_preview"] = "[思考] " + _last_reasoning.substr(0, 280)
 
 		var is_done: bool = await _act_on_response(action, _nudged)
 
@@ -219,10 +280,11 @@ func run(ticket: Dictionary = {}) -> void:
 	_execution_trace["status"] = "COMPLETED" if node_state == NodeState.COMPLETED else "FAILED"
 	_execution_trace["summary"] = _extract_summary()
 
-	# 更新领域知识
+	# 更新领域知识 — 只接受结构化的蒸馏总结；
+	# 原始思考流会被 _request_convergence_summary 用结构化模板重写
 	state = "COMPLETED" if node_state == NodeState.COMPLETED else "FAILED"
 	var summary: String = _extract_summary()
-	if not summary.is_empty():
+	if not summary.is_empty() and _is_structured_summary(summary):
 		domain_knowledge = summary
 	# 更新文件列表
 	for f in _files_created:
@@ -235,10 +297,14 @@ func run(ticket: Dictionary = {}) -> void:
 		var entry_summary: String = summary.substr(0, 80) if not summary.is_empty() else "(no summary)"
 		add_history_entry("R%d, %d files — %s" % [_round_count, _files_created.size(), entry_summary])
 
-	# 收集子节点执行轨迹
+	# 收集子节点执行轨迹 — 只收本次运行的（started_at 不早于 Root），
+	# 过滤掉内存中残留的历史 trace，否则旧 trace 会被扫进新运行日志，
+	# 看起来像"未被调用的节点擅自动了文件"（曾导致严重误判）
+	var root_started: String = str(_execution_trace.get("started_at", ""))
 	for cname in _children:
 		var child = _children[cname]
-		if child._execution_trace.size() > 0:
+		if child._execution_trace.size() > 0 \
+				and str(child._execution_trace.get("started_at", "")) >= root_started:
 			_execution_trace["children"].append(child._execution_trace)
 
 	progress_done.emit()
@@ -252,9 +318,11 @@ func _analyze_response(nudged: bool, redirected: bool, total_tool_calls: int) ->
 	var last_msg: Dictionary = messages.back()
 	var has_tool_calls: bool = last_msg.has("tool_calls") and not last_msg.get("tool_calls", []).is_empty()
 	var llm_content = last_msg.get("content", "")
-	var has_reasoning: bool = llm_content != null and not str(llm_content).is_empty()
+	# 推理模型的思考流在 reasoning_content（不进 messages），也算有推理
+	var has_reasoning: bool = (llm_content != null and not str(llm_content).is_empty()) or not _last_reasoning.is_empty()
 
 	if has_tool_calls:
+		# 拦截：只调工具不解释推理 = 盲动，先 nudge 要求解释
 		if not has_reasoning and not nudged:
 			return ACTION_NUDGE
 		# 有 reasoning + tool_calls，或已被 nudge 过 → 正常执行
@@ -288,9 +356,10 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 			return false
 
 		ACTION_EXECUTE:
-			if nudged:
+			if nudged and _last_reasoning.is_empty():
+				# 仅在确实没有推理时报警（有 reasoning_content 时不算盲动）
 				_log("Round %d: still no reasoning after nudge — executing anyway" % _round_count)
-			node_state = NodeState.TOOL_EXEC
+			_set_node_state(NodeState.TOOL_EXEC)
 			await _execute_tool_round(last_msg.tool_calls)
 			return false
 
@@ -303,43 +372,101 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 			return false
 
 		ACTION_FINISH:
-			node_state = NodeState.COMPLETED
+			_set_node_state(NodeState.COMPLETED)
 			return true
 
 	return false
 
 
-## 收束阶段：用精简消息集请求 LLM 生成最终总结
+## 收束阶段：用结构化模板请求 LLM 生成高质量领域知识总结
 func _request_convergence_summary() -> void:
 	var summary: String = _extract_summary()
-	if not summary.is_empty() or _abort_requested or _round_count == 0:
+	# 已有合格总结（结构化）则跳过；原始思考流不算总结，必须重写
+	if (not summary.is_empty() and _is_structured_summary(summary)) or _abort_requested or _round_count == 0:
 		return
 
-	_log("No summary after %d rounds — requesting final answer" % _round_count)
+	_log("No summary after %d rounds — requesting structured analysis" % _round_count)
 	var exec_brief: String = _build_execution_brief()
+	var files_brief: String = ""
+	if not _read_files.is_empty():
+		files_brief = "\n\nFiles explored:\n%s" % "\n".join(_read_files)
+
 	var convergence_msgs: Array = [
-		{"role": "system", "content": "You are an AI assistant working inside a Godot game engine editor. You just completed a series of tool calls. Summarize the results concisely."},
-		{"role": "user", "content": "You completed %d rounds of tool execution. Here is what happened:\n\n%s\n\nProvide a concise summary of what was accomplished, any files created or modified, and the current status. Do not call any tools." % [_round_count, exec_brief]},
+		{"role": "system", "content": """You are an AI architect summarizing a Godot project analysis. Write a structured domain knowledge summary using EXACTLY this format:
+
+## Project Overview
+[project type, architecture pattern, main entry point]
+
+## System Modules
+| Module | Responsibility | Key Files | Key Functions/Signals |
+|--------|---------------|-----------|----------------------|
+[one row per major system/subsystem]
+
+## Dependencies & Signal Flow
+[which modules depend on which, key signal chains, autoload usage]
+
+## Issues Found
+[bugs, missing connections, inconsistencies discovered during analysis]
+
+Be specific: include file paths, function names, signal names. Do NOT list every file you read — distill the architecture. Focus on what a developer needs to understand the project."""},
+		{"role": "user", "content": "You completed %d rounds of analysis.%s%s\n\nWrite your structured domain knowledge summary now. Do not call any tools." % [_round_count, exec_brief, files_brief]},
 	]
-	node_state = NodeState.LLM_REQUEST
+	_set_node_state(NodeState.LLM_REQUEST)
 	var saved_messages: Array = messages
 	var saved_tools: Array = tool_definitions
 	messages = convergence_msgs
+	_invalidate_ctx_cache()
 	tool_definitions = []
 	var summary_ok: bool = await _do_llm_request()
 	messages = saved_messages
+	_invalidate_ctx_cache()
 	tool_definitions = saved_tools
 	if summary_ok:
 		var final_msg: Dictionary = convergence_msgs.back()
 		if final_msg.get("role", "") == "assistant":
-			messages.append(final_msg)
-		node_state = NodeState.COMPLETED
+			var content = final_msg.get("content", "")
+			if content != null and not str(content).is_empty():
+				domain_knowledge = str(content)
+				messages.append(final_msg)
+		_set_node_state(NodeState.COMPLETED)
 
 
 ## 定时器辅助 — 安全处理 host_node 可能为 null 的情况
 func _delay(seconds: float) -> void:
 	if _host_node and _host_node.get_tree():
 		await _host_node.get_tree().create_timer(seconds).timeout
+
+
+# ============ 轮数预算 ============
+##
+## 轮数像水一样从 Root 流下整棵树：
+## Root 预算无限；非 Root 节点带初始预算运行，耗尽后向父级申请；
+## 父级从自己的预算中拨付，不足时递归向上申请。
+## 没有硬性轮数上限 — 只有预算流动，申请被拒时节点正常收束而非失败。
+
+## 预算耗尽时向父节点申请轮数 — 返回获批数量，0 = 拒绝
+func _request_rounds_from_parent(amount: int = ROUND_GRANT_SIZE) -> int:
+	var parent: AgentNode = _parent_ref.get_ref() if _parent_ref else null
+	if parent == null:
+		_log("No parent available for round grant (parent_id=%s)" % parent_id)
+		return 0
+	_log("Requesting %d rounds from parent '%s'" % [amount, parent_id])
+	return await parent.grant_rounds(node_id, amount)
+
+
+## 父节点侧：向子节点拨付轮数。
+## Root（预算 -1）无限拨付；非 Root 从自身预算扣减，不足时先向上级申请补充。
+func grant_rounds(child_id: String, amount: int) -> int:
+	if _round_budget < 0:
+		_log("Grant %d rounds → %s (unlimited)" % [amount, child_id])
+		return amount
+	if _round_budget < amount:
+		var top_up: int = await _request_rounds_from_parent(maxi(amount - _round_budget, ROUND_GRANT_SIZE))
+		_round_budget += top_up
+	var granted: int = mini(amount, _round_budget)
+	_round_budget -= granted
+	_log("Grant %d/%d rounds → %s (remaining budget: %d)" % [granted, amount, child_id, _round_budget])
+	return granted
 
 
 # ============ 子类可重写 ============
@@ -350,6 +477,7 @@ func _construct_user_message(ticket: Dictionary) -> String:
 
 func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 	var result: Dictionary
+
 	if BanyanToolExecutor.is_management_tool(tc_name):
 		if _tool_executor:
 			result = await _tool_executor.execute(tc_name, args_raw)
@@ -361,13 +489,27 @@ func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 		else:
 			result = {"ok": false, "content": "ToolRegistry not available"}
 
-	# 追踪已读文件，用于 spawn 时注入父节点知识
-	if result.get("ok", false) and tc_name in ["read_script", "inspect_scene_structured", "extract_script_interface"]:
-		var parsed_args: Variant = JSON.parse_string(args_raw)
-		if parsed_args is Dictionary:
-			var fp: String = str(parsed_args.get("path", parsed_args.get("scene_path", "")))
-			if not fp.is_empty() and fp not in _read_files:
-				_read_files.append(fp)
+	# ── 追踪已读文件路径 ──
+	if result.get("ok", false):
+		if tc_name == "read_script":
+			var parsed_args: Variant = JSON.parse_string(args_raw)
+			if parsed_args is Dictionary:
+				var fp: String = str(parsed_args.get("path", ""))
+				if not fp.is_empty() and fp not in _read_files:
+					_read_files.append(fp)
+		elif tc_name == "read_multiple_files":
+			var parsed_args: Variant = JSON.parse_string(args_raw)
+			if parsed_args is Dictionary:
+				for p in parsed_args.get("paths", []):
+					var ps: String = str(p)
+					if ps not in _read_files:
+						_read_files.append(ps)
+		elif tc_name in ["inspect_scene_structured", "extract_script_interface"]:
+			var parsed_args: Variant = JSON.parse_string(args_raw)
+			if parsed_args is Dictionary:
+				var fp: String = str(parsed_args.get("path", parsed_args.get("scene_path", "")))
+				if not fp.is_empty() and fp not in _read_files:
+					_read_files.append(fp)
 
 	return result
 
@@ -382,6 +524,29 @@ func _handle_management_tool(tool_name: String, args: Dictionary) -> Dictionary:
 			return await _handle_wait_for_children(args)
 		"list_children":
 			return _handle_list_children(args)
+		"claim_files":
+			var paths = args.get("paths", [])
+			if not paths is Array or paths.is_empty():
+				return {"ok": false, "content": "paths array is required and must not be empty"}
+			var action: String = str(args.get("action", "set"))
+			var claimed: Array = []
+			for p in paths:
+				var ps: String = str(p)
+				if not ps.is_empty():
+					claimed.append(ps)
+			match action:
+				"set":
+					managed_files = claimed.duplicate()
+				"add":
+					for fp in claimed:
+						if fp not in managed_files:
+							managed_files.append(fp)
+				"remove":
+					for fp in claimed:
+						managed_files.erase(fp)
+				_:
+					return {"ok": false, "content": "Unknown action '%s'. Use set, add, or remove." % action}
+			return {"ok": true, "content": "Claimed %d files (%s). You now manage %d files total." % [claimed.size(), action, managed_files.size()]}
 		"save_knowledge":
 			var k_summary: String = str(args.get("summary", ""))
 			var k_category: String = str(args.get("category", "general"))
@@ -447,9 +612,12 @@ func _handle_management_tool(tool_name: String, args: Dictionary) -> Dictionary:
 # ============ LLM 请求 ============
 
 func _do_llm_request() -> bool:
+	_stream_chars = 0  # 新请求开始，流式计数归零
 	_current_slot = await _pool.wait_for_slot(node_id)
 	if _current_slot == null:
-		progress_error.emit("No available slot after waiting")
+		# 瞬态失败：只记日志，由 run 循环退避重试；
+		# progress_error 保留给熔断后的终态失败（见 run 循环）
+		_log("No available slot after waiting — will retry")
 		return false
 
 	var builder: MsgBldr = MsgBldr.new()
@@ -477,6 +645,12 @@ func _do_llm_request() -> bool:
 			var delta: String = _current_slot.accumulated_content.substr(emitted_len)
 			progress_chunk.emit(delta)
 			emitted_len = current_len
+		# 流式心跳：content + reasoning 都在流入，节流上报让 Agent Graph 实时看到进度
+		_stream_chars = current_len + _current_slot.accumulated_reasoning.length()
+		var now_msec: int = Time.get_ticks_msec()
+		if now_msec - _last_stream_notify > 500:
+			_last_stream_notify = now_msec
+			state_changed.emit(node_id)
 		if _host_node and _host_node.get_tree():
 			await _host_node.get_tree().process_frame
 
@@ -485,13 +659,16 @@ func _do_llm_request() -> bool:
 
 	if _current_slot.state != ReqSlot.State.COMPLETED:
 		var err: String = _current_slot.error_message
-		progress_error.emit("LLM error: %s" % err)
-		_log("LLM error: %s" % err)
+		# 瞬态失败：只记日志（429/网络抖动等会由 run 循环退避重试恢复），
+		# 不发射 progress_error — 该信号只代表熔断后的终态失败，
+		# 否则 UI/驱动方会把一次可恢复的瞬态错误误判为整轮失败
+		_log("LLM error (transient, will retry): %s" % err)
 		_release_slot()
 		return false
 
 	var tool_calls: Array = _current_slot.accumulated_tool_calls
 	var content: String = _current_slot.accumulated_content
+	_last_reasoning = _current_slot.accumulated_reasoning
 	if content.length() > emitted_len:
 		progress_chunk.emit(content.substr(emitted_len))
 
@@ -538,11 +715,16 @@ func _execute_tool_round(tool_calls: Array) -> void:
 				"result_preview": result_content.substr(0, 300),
 			})
 
-		messages.append({
+		var tool_msg: Dictionary = {
 			"role": "tool",
 			"tool_call_id": tc_id,
 			"content": result.get("content", ""),
-		})
+		}
+		# 管理工具（wait_for_children 报告、list_children 等）返回的是蒸馏信息，
+		# 标记为不截断 — 截断报告曾导致父节点误判"报告不全"而重复 route
+		if BanyanToolExecutor.is_management_tool(tc_name):
+			tool_msg["_no_truncate"] = true
+		messages.append(tool_msg)
 
 		if tc_name in ["build_scene", "build_script", "update_script", "write_file"] and ok:
 			_track_files(result)
@@ -564,7 +746,7 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 	if task_desc.is_empty():
 		return {"ok": false, "content": "task_description is required"}
 
-	if _children.size() >= MAX_CHILDREN:
+	if MAX_CHILDREN > 0 and _children.size() >= MAX_CHILDREN:
 		return {"ok": false, "content": "Max children (%d) reached" % MAX_CHILDREN}
 
 	var child_name: String = args.get("name", "Child_%s_%03d" % [node_id, _children.size() + 1])
@@ -577,14 +759,36 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 	child.configure_llm(_base_url, _api_key, _model, _max_tokens)
 	child.node_id = child_name
 	child.parent_id = node_id
-	# 子节点获得基础 prompt + 任务聚焦指令 + 父节点已知信息
-	var parent_context: String = "\n\n## Your Specific Task\nYou are: **%s**\nYour parent (%s) assigned you: %s\n\nFocus ONLY on this task. Do not read files unrelated to your domain. When you have enough information, write your summary and stop." % [child_name, node_id, task_desc]
-	if not _read_files.is_empty():
-		var recent_files: Array = _read_files.slice(max(0, _read_files.size() - 20))
-		parent_context += "\n\n## Parent's Already-Read Files (do NOT re-read these)\n%s" % "\n".join(recent_files)
+	child._parent_ref = weakref(self)  # 轮数预算申请通道
+	# ── 构建父节点上下文注入 — 传递已有知识，避免子节点重复探索 ──
+	var parent_context: String = ""
+
+	# 1. 任务定义
+	parent_context += "\n\n## Your Specific Task\n"
+	parent_context += "You are: **%s**\n" % child_name
+	parent_context += "Your parent (%s) assigned you:\n%s\n\n" % [node_id, task_desc]
+	parent_context += "Focus ONLY on this task. When you have enough information, write your summary and stop.\n"
+
+	# 2. 文件索引（路径 + 一行摘要）— 子节点可直接引用，无需重读
+	if not _file_summaries.is_empty():
+		parent_context += "\n\n## Parent's File Index (already analyzed — use these summaries instead of re-reading)\n"
+		for fp in _file_summaries:
+			parent_context += "- `%s`: %s\n" % [fp, _file_summaries[fp]]
+
+	# 3. 仅路径（无摘要的文件，如 inspect_scene 结果）
+	var bare_paths: Array = []
+	for f in _read_files:
+		if f not in _file_summaries:
+			bare_paths.append(f)
+	if not bare_paths.is_empty():
+		parent_context += "\n\n## Parent Also Read (no summary available)\n%s\n" % "\n".join(bare_paths)
+
+	# 4. 父节点的领域知识
 	if not domain_knowledge.is_empty():
-		var trimmed_knowledge: String = domain_knowledge.substr(0, 800)
-		parent_context += "\n\n## Parent's Domain Knowledge (for context, do not re-explore)\n%s" % trimmed_knowledge
+		var trimmed: String = domain_knowledge.substr(0, 2000)
+		parent_context += "\n\n## Parent's Domain Knowledge\n"
+		parent_context += "%s\n" % trimmed
+
 	child.system_prompt = system_prompt + parent_context
 	child.tool_definitions = tool_definitions
 
@@ -600,10 +804,22 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 	child.progress_chunk.connect(func(chunk: String):
 		progress_chunk.emit(chunk)
 	)
+	# 转发子节点状态/工具事件到父链 — Agent Graph 实时感知整棵树的运行状态
+	# 透传来源节点 id（而非父节点自身 id），监控方能精确定位是哪个节点在变化
+	child.state_changed.connect(func(origin_id: String):
+		state_changed.emit(origin_id)
+	)
+	child.progress_tool_started.connect(func(tool_name: String):
+		progress_tool_started.emit(tool_name)
+	)
+	child.progress_tool_finished.connect(func(tool_name: String, ok: bool):
+		progress_tool_finished.emit(tool_name, ok)
+	)
 	child.progress_done.connect(func():
 		_pending_children[child_name] = true
 		_child_reports[child_name] = child.generate_report()
 		_log("Child %s completed" % child_name)
+		state_changed.emit(node_id)
 	)
 	child.progress_error.connect(func(err: String):
 		_log("Child %s error: %s" % [child_name, err])
@@ -612,6 +828,7 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 
 	_children[child_name] = child
 	_pending_children[child_name] = false
+	state_changed.emit(node_id)  # 新子节点诞生 — 通知 Agent Graph 立即刷新
 
 	var runner: Callable = func():
 		await child.run(ticket)
@@ -639,15 +856,19 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 	# 重新激活子节点的运行时依赖
 	child.setup(_pool, _tool_registry, _host_node, _logger)
 	child.configure_llm(_base_url, _api_key, _model, _max_tokens)
+	child._parent_ref = weakref(self)  # 轮数预算申请通道
+	# 从磁盘恢复的子节点没有内存态 prompt/tools — 从父节点继承基础配置，
+	# 否则 system 消息为空 + tools=0，API 直接 400，子节点必熔断失败
+	if child.system_prompt.is_empty():
+		child.system_prompt = system_prompt
+	if child.tool_definitions.is_empty():
+		child.tool_definitions = tool_definitions
 
-	# 保留子节点的历史对话 — 让"持久化专家"真正保持上下文
-	if child.messages.size() > 1:
-		var history: Array = []
-		for msg in child.messages:
-			var role: String = msg.get("role", "")
-			if role != "system":
-				history.append(msg)
-		child.prior_messages = history
+	# 轻量唤醒 — 不回灌历史对话。
+	# 节点 = 蒸馏后的上下文：domain_knowledge（每次运行结束的自总结）+
+	# managed_files + file_summaries 已在 _build_node_context() 中注入。
+	# 原始对话是一次性流水，不属于节点本体（架构文档第四节）。
+	child.prior_messages = []
 
 	var ticket: Dictionary = {
 		"ticket_id": "T-%s-%03d" % [child_name, Time.get_ticks_msec() % 1000],
@@ -662,10 +883,22 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 		child.progress_chunk.connect(func(chunk: String):
 			progress_chunk.emit(chunk)
 		)
+		# 转发子节点状态/工具事件到父链 — Agent Graph 实时感知整棵树的运行状态
+		# 透传来源节点 id（而非父节点自身 id），监控方能精确定位是哪个节点在变化
+		child.state_changed.connect(func(origin_id: String):
+			state_changed.emit(origin_id)
+		)
+		child.progress_tool_started.connect(func(tool_name: String):
+			progress_tool_started.emit(tool_name)
+		)
+		child.progress_tool_finished.connect(func(tool_name: String, ok: bool):
+			progress_tool_finished.emit(tool_name, ok)
+		)
 		child.progress_done.connect(func():
 			_pending_children[child_name] = true
 			_child_reports[child_name] = child.generate_report()
 			_log("Child %s completed (routed)" % child_name)
+			state_changed.emit(node_id)
 		)
 		child.progress_error.connect(func(err: String):
 			_log("Child %s error: %s" % [child_name, err])
@@ -673,6 +906,7 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 		_signals_connected[child_name] = true
 
 	_pending_children[child_name] = false
+	state_changed.emit(node_id)  # 子节点被重新激活 — 通知 Agent Graph 刷新
 
 	var runner: Callable = func():
 		await child.run(ticket)
@@ -771,7 +1005,7 @@ func get_execution_trace() -> Dictionary:
 func abort() -> void:
 	_abort_requested = true
 	_release_slot()
-	node_state = NodeState.FAILED
+	_set_node_state(NodeState.FAILED)
 	for cname in _children:
 		_children[cname].abort()
 
@@ -780,10 +1014,18 @@ func generate_report() -> Dictionary:
 	var children_reports: Dictionary = {}
 	for cname in _child_reports:
 		children_reports[cname] = _child_reports[cname]
+	var fresh_output: bool = state == "COMPLETED" and _round_count > 0
+	# 本次未正常完成时，summary 是上次运行留下的旧知识 — 必须明确标注，
+	# 否则父节点会把过时知识误当本次任务成果（曾导致 Root 把熔断失败的
+	# 子节点判断为"实际已完成"）
+	var summary_text: String = domain_knowledge
+	if not fresh_output:
+		summary_text = "[警告：本节点本次运行未产出新结果（status=%s, rounds=%d）。以下是上次运行持久化的旧知识，不代表本次任务已完成]\n%s" % [state, _round_count, domain_knowledge]
 	var report: Dictionary = {
 		"node_id": node_id,
 		"status": state,
-		"summary": domain_knowledge,
+		"fresh_output": fresh_output,
+		"summary": summary_text,
 		"rounds": _round_count,
 		"files": managed_files.duplicate(),
 		"children_count": _children.size(),
@@ -813,6 +1055,9 @@ func to_dict() -> Dictionary:
 		"managed_nodes": managed_nodes.duplicate(),
 		"children_summaries": children_summaries.duplicate(true),
 		"history": history.duplicate(),
+		# 不持久化原始 messages — 节点只带蒸馏后的总结（domain_knowledge），
+		# 原始对话是一次性流水，持久化会导致重激活时上下文爆炸
+		"file_summaries": _file_summaries.duplicate(),
 	}
 
 
@@ -837,6 +1082,14 @@ static func from_dict(data: Dictionary) -> AgentNode:
 	if h is Array:
 		for entry in h:
 			node.history.append(str(entry))
+	# 兼容旧格式：忽略已废弃的 "messages" 字段（原始对话不再回灌）
+	# 加载文件摘要
+	var fs = data.get("file_summaries", {})
+	if fs is Dictionary:
+		for key in fs:
+			node._file_summaries[str(key)] = str(fs[key])
+			if str(key) not in node._read_files:
+				node._read_files.append(str(key))
 	return node
 
 
@@ -868,6 +1121,12 @@ func _extract_summary() -> String:
 			if not content.is_empty():
 				return content
 	return ""
+
+
+## 判断文本是否是合格的蒸馏总结（含结构化小节），
+## 而不是模型泄漏的原始思考流（如 "I notice that... Let me check..."）
+func _is_structured_summary(content: String) -> bool:
+	return content.contains("##")
 
 
 ## 从执行轨迹构建精简摘要 — 供收束阶段使用，避免发送完整消息历史
@@ -970,6 +1229,18 @@ func _build_node_context() -> String:
 		parts.append("## Files You Manage")
 		for f in managed_files:
 			parts.append("- %s" % str(f))
+
+	if not _file_summaries.is_empty():
+		parts.append("")
+		parts.append("## Files You Have Read (with summaries)")
+		parts.append("You previously read these files. Use these summaries as context — no need to re-read unless you need specific details.")
+		for fp in _file_summaries:
+			parts.append("- `%s`: %s" % [fp, _file_summaries[fp]])
+
+	if not prior_messages.is_empty():
+		parts.append("")
+		parts.append("## Prior Conversation")
+		parts.append("Your previous conversation is loaded below as context. You already know what was discussed — build on it, don't repeat it.")
 
 	if not children_summaries.is_empty():
 		parts.append("")

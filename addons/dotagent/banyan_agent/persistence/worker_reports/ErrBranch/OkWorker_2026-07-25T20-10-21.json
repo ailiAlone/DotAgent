@@ -1,0 +1,14 @@
+{
+	"$schema": "banyan_worker_report",
+	"branch_name": "ErrBranch",
+	"report": {
+		"files": [],
+		"node_id": "",
+		"rounds": 0,
+		"status": "COMPLETED",
+		"summary": "OkWorker succeeded"
+	},
+	"saved_at": "2026-07-25T20:10:21",
+	"version": "1.0",
+	"worker_name": "OkWorker"
+}

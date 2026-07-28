@@ -14,6 +14,9 @@ var round_count: int = 0
 var files_count: int = 0
 var children_count: int = 0
 var domain_knowledge: String = ""
+var _ctx_size: int = 0
+var _stream_chars: int = 0  # 正在流入的字符数（LLM_REQUEST 中实时增长）
+var _state_style: StyleBoxFlat = null  # 每实例独立的样式副本（场景子资源默认共享，必须复制）
 
 const NodeSlotScene = preload("res://addons/dotagent/banyan_agent/ui/CustomNode/node_slot.tscn")
 
@@ -31,28 +34,50 @@ var _slots: Dictionary = {"left": [], "right": [], "top": [], "bottom": []}
 
 func _ready() -> void:
 	_clear_slots()
+	_ensure_state_style()
+	_apply_state_color()
 	_update_content()
 
 
-func configure(id: String, state: String, rounds: int, color: Color, files: int = 0, children: int = 0, knowledge: String = "") -> void:
+## 获取每实例独立的 StyleBoxFlat — 场景子资源在所有实例间共享，
+## 直接修改会让全图节点变成同一个颜色，必须 duplicate 后 override
+func _ensure_state_style() -> void:
+	if _state_style != null or panel_container == null:
+		return
+	var base = panel_container.get_theme_stylebox("panel")
+	if base is StyleBoxFlat:
+		_state_style = base.duplicate()
+		panel_container.add_theme_stylebox_override("panel", _state_style)
+
+
+## 按当前状态着色：边框用状态色，底色用状态色的低透明度版本
+func _apply_state_color() -> void:
+	if _state_style == null:
+		return
+	var c: Color = _state_color(agent_state)
+	_state_style.border_color = c
+	_state_style.bg_color = Color(c.r, c.g, c.b, 0.12)
+
+
+func configure(id: String, state: String, rounds: int, color: Color, files: int = 0, children: int = 0, knowledge: String = "", ctx_size: int = 0, stream_chars: int = 0) -> void:
 	node_id = id
 	agent_state = state
 	round_count = rounds
 	files_count = files
 	children_count = children
 	domain_knowledge = knowledge
+	_ctx_size = ctx_size
+	_stream_chars = stream_chars
 	name = id
 
-	# 状态色 → 边框颜色
-	if panel_container:
-		var style = panel_container.get_theme_stylebox("panel")
-		if style is StyleBoxFlat:
-			style.border_color = _state_color(state)
+	# 状态色 → 每实例独立样式（配置可能发生在 _ready 之前，颜色在 _ready 应用）
+	_ensure_state_style()
+	_apply_state_color()
 
 	# 仅在 @onready 已就绪时更新（否则由 _ready() 处理）
+	# 注意：slot 生命周期由 connection_overlay 管理，这里不要清理 slot
 	if is_node_ready():
 		_update_content()
-		_clear_slots()
 
 
 func _clear_slots() -> void:
@@ -109,7 +134,11 @@ func _update_content() -> void:
 		name_label.text = node_id
 
 	if ctx_value_label:
-		ctx_value_label.text = "%d" % domain_knowledge.length()
+		# LLM 请求中显示实时流入量：ctx + 正在流入（流式心跳驱动，约 0.5s 一跳）
+		if agent_state == "LLM_REQUEST" and _stream_chars > 0:
+			ctx_value_label.text = "%d+%d" % [_ctx_size, _stream_chars]
+		else:
+			ctx_value_label.text = "%d" % _ctx_size
 
 	if files_count_value_label:
 		files_count_value_label.text = "%d" % files_count
@@ -133,6 +162,6 @@ static func _state_color(state: String) -> Color:
 	match str(state):
 		"COMPLETED": return Color.GREEN
 		"FAILED": return Color.RED
+		"RETRYING", "BLOCKED": return Color.ORANGE
 		"RUNNING", "LLM_REQUEST", "TOOL_EXEC": return Color(1, 0.8, 0)
-		"BLOCKED": return Color.ORANGE
 		_: return Color(0.5, 0.5, 0.5)

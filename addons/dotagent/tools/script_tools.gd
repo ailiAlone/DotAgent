@@ -244,32 +244,47 @@ func _validate_gdscript(path: String) -> String:
 	if err == OK:
 		return ""
 
-	# reload() only returns error codes (e.g. "Parse error") — no line numbers.
-	# Fall back to headless subprocess for detailed line-level error output.
+	# reload() only returns error codes (e.g. "Parse error") — no line numbers,
+	# 且编辑器内 dummy reload 可能受全局 class_name 注册状态干扰产生误报。
+	# 用子进程 --check-only 对磁盘文件做权威解析（只解析不执行，不要求 SceneTree 继承）。
 	var detail := _subprocess_compile_check(path)
 	if not detail.is_empty():
 		return detail
+	if detail != "__UNAVAILABLE__":
+		# 子进程解析通过 — 信任干净进程的结果，忽略编辑器态误报
+		return ""
 	return error_string(err)
 
 
-## Run Godot --headless --script to compile a script and capture line-level errors.
-## Returns empty string on success, or the extracted error lines.
+## Run Godot --headless --check-only --script to parse a script and capture line-level errors.
+## --check-only 只做语法解析不执行，因此非 SceneTree 脚本不会产生
+## "doesn't inherit from SceneTree" 的误报。
+## Returns empty string on success, the extracted error lines on failure,
+## or "__UNAVAILABLE__" if the subprocess could not be started.
 func _subprocess_compile_check(path: String) -> String:
 	var godot_exe: String = OS.get_executable_path()
 	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
-		return ""
+		return "__UNAVAILABLE__"
 
 	var project_path: String = ProjectSettings.globalize_path("res://")
 	var script_abs: String = ProjectSettings.globalize_path(path)
 
 	var output: Array = []
 	var exit_code := OS.execute(godot_exe, [
-		"--headless", "--path", project_path,
-		"--script", script_abs, "--quit-after", "1",
+		"--headless", "--check-only", "--path", project_path,
+		"--script", script_abs,
 	], output, true, false)
+
+	if exit_code < 0:
+		return "__UNAVAILABLE__"
 
 	var full := "\n".join(output)
 	var errors := _extract_error_lines(full)
+	# 双保险：即使 Godot 版本不支持 --check-only 而仍尝试执行，
+	# 也不把"非 SceneTree 无法作为主循环加载"当作语法错误
+	errors = errors.filter(func(line: String) -> bool:
+		return not line.contains("doesn't inherit from SceneTree")
+	)
 
 	if errors.is_empty() and exit_code != 0:
 		var preview := full.strip_edges()

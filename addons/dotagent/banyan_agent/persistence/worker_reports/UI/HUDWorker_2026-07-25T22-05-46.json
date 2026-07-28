@@ -1,0 +1,14 @@
+{
+	"$schema": "banyan_worker_report",
+	"branch_name": "UI",
+	"report": {
+		"files": [],
+		"node_id": "",
+		"rounds": 0,
+		"status": "COMPLETED",
+		"summary": "HUD: health bar, minimap, inventory panel"
+	},
+	"saved_at": "2026-07-25T22:05:46",
+	"version": "1.0",
+	"worker_name": "HUDWorker"
+}

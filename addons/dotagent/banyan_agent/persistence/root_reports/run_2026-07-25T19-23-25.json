@@ -1,0 +1,18 @@
+{
+	"$schema": "banyan_root_report",
+	"report": {
+		"all_files": [],
+		"branches": {
+
+		},
+		"root_rounds": 4,
+		"root_summary": "我已经通过项目架构工具了解了当前项目。下面是总结：\n\n## 项目基本信息\n\n- **项目名**：Star Hunter - 星海猎手\n- **规模**：18 个场景 / 41 个脚本 / 6 个资源\n- **Autoload**：GameManager、AudioManager、TaskRunner\n- **主场景**：尚未设置\n\n## 场景结构\n\n| 分类 | 场景 |\n|---|---|\n| …",
+		"status": "COMPLETED",
+		"total_branches": 0,
+		"total_files": 0,
+		"total_workers": 0
+	},
+	"run_id": "run_2026-07-25T19-23-25",
+	"saved_at": "2026-07-25T19:23:25",
+	"version": "1.0"
+}

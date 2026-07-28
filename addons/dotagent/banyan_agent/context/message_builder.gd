@@ -8,7 +8,7 @@ extends RefCounted
 ##   - 消息量天然小（2-5K tokens），不需要 Legacy 的压缩策略
 ##   - 工具消息截断阈值更高（结构化 JSON 输出本身就是高密度的）
 
-const MAX_TOOL_RESULT_LEN := 4000   # 工具返回截断长度（Banyan 的结构化工具输出更紧凑）
+const MAX_TOOL_RESULT_LEN := 16000  # 工具返回截断长度（4000 会把读文件结果拦腰截断，诱使模型反复重读）
 const MAX_USER_MSG_LEN := 5000      # 用户消息截断长度
 
 var _messages: Array  # 对 Worker 独立 messages 数组的引用
@@ -43,8 +43,11 @@ func build() -> Array:
 				result.append(msg)
 			"tool":
 				var tc: Dictionary = msg.duplicate(true)
+				# 管理工具结果（wait_for_children 报告等）是蒸馏信息，不截断
+				var no_truncate: bool = tc.get("_no_truncate", false)
+				tc.erase("_no_truncate")  # 内部标记，不发给 API
 				var content: String = str(tc.get("content", ""))
-				if content.length() > MAX_TOOL_RESULT_LEN:
+				if not no_truncate and content.length() > MAX_TOOL_RESULT_LEN:
 					tc["content"] = content.substr(0, MAX_TOOL_RESULT_LEN) + "…[%d chars]" % content.length()
 				result.append(tc)
 

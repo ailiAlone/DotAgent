@@ -98,12 +98,18 @@ func _parse_event(event_text: String) -> Dictionary:
 	var fr_raw = choice.get("finish_reason", null)
 	var fr: String = str(fr_raw) if fr_raw != null else ""
 
-	var result: Dictionary = {"type": "content", "content": "", "tool_call": null, "finish_reason": fr}
+	var result: Dictionary = {"type": "content", "content": "", "reasoning": "", "tool_call": null, "finish_reason": fr}
 
 	# content chunk
 	var content_chunk: String = _get_string(delta, "content")
 	if not content_chunk.is_empty():
 		result.content = content_chunk
+
+	# reasoning chunk — Kimi/DeepSeek 等推理模型把思考流放在 reasoning_content，
+	# 不解析会导致上层误判"无推理盲动"（每个工具轮白跑一次 nudge）
+	var reasoning_chunk: String = _get_string(delta, "reasoning_content")
+	if not reasoning_chunk.is_empty():
+		result.reasoning = reasoning_chunk
 
 	# tool_calls chunks
 	if delta.has("tool_calls"):

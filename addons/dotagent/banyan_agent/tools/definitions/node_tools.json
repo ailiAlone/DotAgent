@@ -81,6 +81,30 @@
     {
       "type": "function",
       "function": {
+        "name": "claim_files",
+        "description": "Declare which files belong to your domain. Call this after exploring your area — you decide which files you are responsible for. This is YOUR active choice, not automatic tracking. Claimed files show as your managed_files in the tree UI.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of res:// paths you claim responsibility for"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["set", "add", "remove"],
+              "description": "set = replace all managed files, add = append to existing, remove = remove from existing. Default: set",
+              "default": "set"
+            }
+          },
+          "required": ["paths"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "list_files",
         "description": "List files under a directory. Returns array of res:// paths. Use this FIRST to discover the project structure before reading files.",
         "parameters": {

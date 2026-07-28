@@ -39,6 +39,8 @@ var _log_entries: Array = []
 var _prune_suggestions: Array = []
 var _overlay: Control = null
 var _connections: Array = []
+var _connections_key: String = ""  # 连线结构的规范化签名，用于检测结构变化
+var _did_initial_center: bool = false  # 首次布局后不再抢夺用户的平移/缩放
 
 
 func _ready() -> void:
@@ -57,12 +59,14 @@ func _ready() -> void:
 # ============ Agent Graph 可视化 ============
 
 ## 更新整张图 — 从 AgentTree 对象或 Dictionary
+## 增量更新：不再整图销毁重建，只同步差异，保持视图稳定
 func update_tree(data) -> void:
 	if not _graph:
 		return
-	_clear_graph()
 
 	if data == null:
+		_clear_graph()
+		_tree_data.clear()
 		_tree_count.text = "0 nodes"
 		return
 
@@ -87,6 +91,7 @@ func _build_from_agent_tree(agent_tree) -> void:
 			"state": n.state,
 			"rounds": n.get_round_count(),
 			"files": n.managed_files.duplicate(),
+			"ctx_size": n.get_ctx_size(),
 			"children_count": agent_tree.get_children(nid).size(),
 			"domain_knowledge": n.domain_knowledge,
 			"history": n.history.duplicate(),
@@ -115,6 +120,8 @@ func _build_from_dict(data: Dictionary) -> void:
 		"state": root_state,
 		"rounds": int(data.get("rounds", 0)),
 		"files": data.get("files", []),
+		"ctx_size": int(data.get("ctx_size", 0)),
+		"stream_chars": int(data.get("stream_chars", 0)),
 		"children_count": 0,
 		"domain_knowledge": str(data.get("domain_knowledge", "")),
 		"history": data.get("history", []),
@@ -137,6 +144,8 @@ func _flatten_children(parent_id: String, children_dict: Dictionary) -> void:
 			"state": str(cdata.get("state", "")),
 			"rounds": int(cdata.get("rounds", 0)),
 			"files": cdata.get("files", []),
+			"ctx_size": int(cdata.get("ctx_size", 0)),
+			"stream_chars": int(cdata.get("stream_chars", 0)),
 			"children_count": 0,
 			"domain_knowledge": str(cdata.get("domain_knowledge", "")),
 			"history": cdata.get("history", []),
@@ -153,8 +162,71 @@ func _flatten_children(parent_id: String, children_dict: Dictionary) -> void:
 
 # ============ 布局 & 渲染 ============
 
-## 径向布局：Root 居中，子节点向四周散开
+## 增量同步图 — 只创建/删除有变化的节点，其余就地更新数据
+## 仅当结构（节点集合或连线）变化时才重算布局，保持视图稳定不跳动
 func _layout_and_render(root_id: String) -> void:
+	# 1. 现有 GraphElement 节点
+	var existing: Dictionary = {}
+	for child in _graph.get_children():
+		if child is GraphElement:
+			existing[str(child.name)] = child
+
+	var structure_changed: bool = false
+
+	# 2. 删除已消失的节点
+	for nid in existing.keys():
+		if not _tree_data.has(nid):
+			existing[nid].queue_free()
+			existing.erase(nid)
+			structure_changed = true
+
+	# 3. 新增节点或就地更新（状态色 / 轮数 / ctx / 文件数实时变化）
+	for nid in _tree_data:
+		var gn = existing.get(nid)
+		if gn == null:
+			_create_graph_node(nid, Vector2.ZERO)
+			structure_changed = true
+		else:
+			_update_graph_node_data(gn, _tree_data[nid])
+
+	# 4. 连线集合 — 用规范化 key 比较结构（overlay 会在 conn 上写入 slot 信息，不能直接比字典）
+	var new_connections: Array = []
+	var conn_keys: Array = []
+	for nid in _tree_data:
+		var pid: String = str(_tree_data[nid].get("parent_id", ""))
+		if not pid.is_empty() and _tree_data.has(pid):
+			new_connections.append({"from": pid, "to": nid})
+			conn_keys.append("%s>%s" % [pid, nid])
+	conn_keys.sort()
+	var new_conn_key: String = ";".join(conn_keys)
+	if new_conn_key != _connections_key:
+		structure_changed = true
+		_connections_key = new_conn_key
+	_connections = new_connections
+
+	# 5. 仅在结构变化或首次时重算径向布局
+	if structure_changed or not _did_initial_center:
+		_relayout(root_id)
+
+	if _overlay:
+		_overlay.refresh()
+
+
+## 就地更新已有节点的显示数据（不重建实例，保持位置不变）
+func _update_graph_node_data(gn, ndata: Dictionary) -> void:
+	var state: String = str(ndata.get("state", "IDLE"))
+	var rounds: int = int(ndata.get("rounds", 0))
+	var files = ndata.get("files", [])
+	var fc: int = files.size() if files is Array else 0
+	var cc: int = int(ndata.get("children_count", 0))
+	var knowledge: String = str(ndata.get("domain_knowledge", ""))
+	var ctx_sz: int = int(ndata.get("ctx_size", 0))
+	var stream_sz: int = int(ndata.get("stream_chars", 0))
+	gn.configure(str(gn.name), state, rounds, _state_color(state), fc, cc, knowledge, ctx_sz, stream_sz)
+
+
+## 径向布局：Root 居中，子节点向四周散开（仅结构变化时调用）
+func _relayout(root_id: String) -> void:
 	var positions: Dictionary = {}
 	var center := Vector2(400, 300)
 
@@ -162,12 +234,8 @@ func _layout_and_render(root_id: String) -> void:
 	var leaf_counts: Dictionary = {}
 	_count_leaves(root_id, leaf_counts)
 
-	# 先用估算尺寸定位（创建节点后才能拿到真实尺寸）
+	# 先用估算尺寸定位
 	_position_radial(root_id, center, -PI, PI, 0, leaf_counts, positions)
-
-	# 创建 GraphNode
-	for nid in positions:
-		_create_graph_node(nid, positions[nid])
 
 	# 拿到真实节点尺寸后，重新计算布局
 	var max_size := Vector2.ZERO
@@ -188,23 +256,13 @@ func _layout_and_render(root_id: String) -> void:
 		if node:
 			node.position_offset = positions[nid]
 
-	# 存储连线数据给覆盖层绘制
-	_connections.clear()
-	for nid in _tree_data:
-		var ndata: Dictionary = _tree_data[nid]
-		var pid: String = str(ndata.get("parent_id", ""))
-		if not pid.is_empty() and positions.has(pid) and positions.has(nid):
-			_connections.append({"from": pid, "to": nid})
-
-	if _overlay:
-		_overlay.refresh()
-
-	# 将视图居中到 Root
-	if positions.has(root_id):
+	# 仅在首次布局时将视图居中到 Root — 之后不再抢夺用户的平移/缩放
+	if not _did_initial_center and positions.has(root_id):
 		var root_pos: Vector2 = positions[root_id]
 		var root_node = _graph.get_node_or_null(NodePath(root_id))
 		var root_size: Vector2 = root_node.size if root_node else Vector2(100, 60)
 		_graph.scroll_offset = root_pos - Vector2(400, 300) + root_size * 0.5
+		_did_initial_center = true
 
 
 func _count_leaves(nid: String, out: Dictionary) -> int:
@@ -282,10 +340,11 @@ func _create_graph_node(nid: String, pos: Vector2) -> void:
 	var fc: int = files.size() if files is Array else 0
 	var cc: int = int(ndata.get("children_count", 0))
 	var knowledge: String = str(ndata.get("domain_knowledge", ""))
+	var ctx_sz: int = int(ndata.get("ctx_size", 0))
 
 	var gn = BanyanNodeScene.instantiate()
 	gn.position_offset = pos
-	gn.configure(nid, state, rounds, color, fc, cc, knowledge)
+	gn.configure(nid, state, rounds, color, fc, cc, knowledge, ctx_sz)
 	gn.node_clicked.connect(func(id):
 		_show_inspector(id)
 		node_selected.emit(id)
@@ -295,6 +354,8 @@ func _create_graph_node(nid: String, pos: Vector2) -> void:
 
 func _clear_graph() -> void:
 	_connections.clear()
+	_connections_key = ""
+	_did_initial_center = false
 	_graph.clear_connections()
 	for child in _graph.get_children():
 		if child is GraphElement or child is GraphNode:
@@ -428,8 +489,8 @@ func _state_color(state: String) -> Color:
 	match str(state):
 		"COMPLETED": return Color.GREEN
 		"FAILED": return Color.RED
+		"RETRYING", "BLOCKED": return Color.ORANGE
 		"RUNNING", "LLM_REQUEST", "TOOL_EXEC": return Color(1, 0.8, 0)
-		"BLOCKED": return Color.ORANGE
 		_: return GRAY
 
 
