@@ -65,28 +65,25 @@ func _resize_self():
 	position = Vector2.ZERO
 	size = vp
 
-func _find_main():
+# 返回场景承载节点：优先 Main，否则回退 root
+func _get_scene_holder() -> Node:
 	var n = get_parent()
 	while n != null and n.name != "Main":
 		n = n.get_parent()
-	return n
+	return n if n != null else get_tree().root
 
 func _on_retry():
 	_am().play_sfx("click")
-	var main = _find_main()
-	if main == null:
-		main = get_tree().root
+	var holder = _get_scene_holder()
 	var game = preload("res://scenes/game.tscn").instantiate()
-	main.add_child(game)
+	holder.add_child(game)
 	queue_free()
 
 func _on_menu():
 	_am().play_sfx("click")
-	var main = _find_main()
-	if main == null:
-		main = get_tree().root
+	var holder = _get_scene_holder()
 	var m = preload("res://scenes/menu.tscn").instantiate()
-	main.add_child(m)
+	holder.add_child(m)
 	queue_free()
 
 func _play_new_record_animation():

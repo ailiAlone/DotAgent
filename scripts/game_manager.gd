@@ -62,11 +62,17 @@ func tick_combo(delta: float):
 func load_high_score():
 	if not FileAccess.file_exists(SAVE_PATH):
 		return
-	var f = FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if f:
-		high_score = f.get_32()
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		push_warning("GameManager: failed to open high score save for reading: ", FileAccess.get_open_error())
+		return
+	high_score = f.get_32()
+	f.close()
 
 func save_high_score():
-	var f = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f:
-		f.store_32(high_score)
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("GameManager: failed to open high score save for writing: ", FileAccess.get_open_error())
+		return
+	f.store_32(high_score)
+	f.close()

@@ -11,6 +11,7 @@ signal shoot(bullet_path, position, direction)
 signal shoot_spread(bullet_path, position, direction)  # 副武器散射
 signal hit
 signal powerup_collected(type)
+signal weapon_level_changed(level)  # 武器等级变化通知 HUD
 
 @export var speed = 420.0
 @export var fire_rate = 0.18
@@ -32,7 +33,12 @@ var trail_scene: PackedScene = null
 var trail_instance: Node2D = null
 var trail_timer: float = 0.0
 # —— 武器等级 0-4，改变子弹数量/模式 ——
-var weapon_level: int = 0
+var weapon_level: int = 0:
+	set(v):
+		v = clamp(v, 0, 4)
+		if v != weapon_level:
+			weapon_level = v
+			weapon_level_changed.emit(weapon_level)
 var weapon_xp: int = 0
 var weapon_xp_next: int = 500
 # —— Dash 闪避 ——
@@ -43,12 +49,6 @@ var dash_speed: float = 1600.0
 var dash_trail: Array = []
 
 func _ready():
-	# 兜底注册 alt_shoot（player 单独跑时也能工作）
-	if not InputMap.has_action("alt_shoot"):
-		InputMap.add_action("alt_shoot")
-		var ev = InputEventKey.new()
-		ev.keycode = KEY_SHIFT
-		InputMap.action_add_event("alt_shoot", ev)
 	screen_size = get_viewport_rect().size
 	add_to_group("player")
 
@@ -68,7 +68,7 @@ func _process(delta):
 		return
 	if dash_cooldown > 0:
 		dash_cooldown -= delta
-	
+
 	var input = Vector2(
 		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
 		Input.get_action_strength("move_down") - Input.get_action_strength("move_up")
@@ -136,46 +136,52 @@ func fire():
 			shoot.emit(b, p + Vector2(-8, -30), Vector2(-0.15, -1).normalized())
 			shoot.emit(b, p + Vector2(8, -30), Vector2(0.15, -1).normalized())
 		3:
-			shoot.emit(b, p + Vector2(0, -32), up)
-			shoot.emit(b, p + Vector2(-26, -24), Vector2(-0.5, -1).normalized())
-			shoot.emit(b, p + Vector2(26, -24), Vector2(0.5, -1).normalized())
-			shoot.emit(b, p + Vector2(-14, -30), Vector2(-0.25, -1).normalized())
-			shoot.emit(b, p + Vector2(14, -30), Vector2(0.25, -1).normalized())
-			shoot.emit(b, p + Vector2(0, 26), Vector2.DOWN)
-			shoot.emit(b, p + Vector2(-20, 20), Vector2(-0.7, 1).normalized() * 600)
-			shoot.emit(b, p + Vector2(20, 20), Vector2(0.7, 1).normalized() * 600)
+			shoot.emit(b, p + Vector2(0, -34), up)
+			shoot.emit(b, p + Vector2(-26, -26), Vector2(-0.4, -1).normalized())
+			shoot.emit(b, p + Vector2(26, -26), Vector2(0.4, -1).normalized())
+			shoot.emit(b, p + Vector2(-12, -30), Vector2(-0.2, -1).normalized())
+			shoot.emit(b, p + Vector2(12, -30), Vector2(0.2, -1).normalized())
+			shoot.emit(b, p + Vector2(-36, -24), Vector2(-0.55, -1).normalized())
+			shoot.emit(b, p + Vector2(36, -24), Vector2(0.55, -1).normalized())
 		4:
-			for i in range(9):
-				var angle = -PI/2 + (i - 4) * 0.15
-				var dir = Vector2(cos(angle), sin(angle))
-				shoot.emit(b, p + Vector2(i * 6 - 24, -28), dir)
-			# 穿透激光（中间大伤害子弹）
-			shoot.emit("res://scenes/bullet.tscn", p + Vector2(0, -36), up)
-	if rapid_fire_timer > 0:
-		var diag_left = Vector2(-0.25, -1).normalized()
-		var diag_right = Vector2(0.25, -1).normalized()
-		shoot.emit(b, p + Vector2(-20, -22), diag_left)
-		shoot.emit(b, p + Vector2(20, -22), diag_right)
+			shoot.emit(b, p + Vector2(0, -36), up)
+			for i in range(-4, 5):
+				shoot.emit(b, p + Vector2(i * 10, -30), Vector2(i * 0.12, -1).normalized())
 
-func take_damage(amount = 1):
+func take_damage(dmg = 1):
 	if invuln_timer > 0:
-		return
+		return false
 	if shield:
 		shield = false
-		shield_timer = 0
-		invuln_timer = 1.0
-		_am().play_sfx("hit")
+		shield_timer = 0.0
 		hit.emit()
-		return
-	hp -= amount
-	invuln_timer = 1.0
-	_am().play_sfx("damage")
+		return true
+	hp -= dmg
 	hit.emit()
 	if hp <= 0:
 		die()
+		return true
+	return true
 
-func heal(amount = 1):
+func heal(amount):
 	hp = min(hp + amount, max_hp)
+
+func reset():
+	hp = 3
+	fire_timer = 0
+	rapid_fire_timer = 0
+	shield = false
+	shield_timer = 0
+	invuln_timer = 1.0
+	weapon_level = 0
+	weapon_xp = 0
+	weapon_xp_next = 500
+	dash_cooldown = 0
+	dash_duration = 0
+	visible = true
+	$CollisionShape2D.disabled = false
+	set_process(true)
+	set_physics_process(true)
 
 # 击杀敌人获得武器经验，满经验升级
 func add_weapon_xp(points: int):
@@ -212,7 +218,10 @@ func _explode_all_enemies():
 	var game = get_tree().current_scene
 	if game == null:
 		return
-	for enemy in game.get_node("Enemies").get_children():
+	var enemies = game.get_node_or_null("Enemies")
+	if enemies == null:
+		return
+	for enemy in enemies.get_children():
 		if not is_instance_valid(enemy):
 			continue
 		if enemy.has_method("die"):
@@ -225,23 +234,6 @@ func die():
 	set_physics_process(false)
 	visible = false
 	$CollisionShape2D.set_deferred("disabled", true)
-
-func reset():
-	hp = 3
-	fire_timer = 0
-	rapid_fire_timer = 0
-	shield = false
-	shield_timer = 0
-	invuln_timer = 1.0
-	weapon_level = 0
-	weapon_xp = 0
-	weapon_xp_next = 500
-	dash_cooldown = 0
-	dash_duration = 0
-	visible = true
-	$CollisionShape2D.disabled = false
-	set_process(true)
-	set_physics_process(true)
 
 func _draw():
 	var body = PackedVector2Array([

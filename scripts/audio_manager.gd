@@ -1,40 +1,48 @@
 extends Node
 
 var _sfx_players = []
-var _music_player: AudioStreamPlayer
+var _music_player
+
+# Cache generated streams so repeated SFX / music don't regenerate WAV data every call.
+var _sfx_cache = {}
+var _music_cache = {}
+
+const POOL_SIZE = 16
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	for i in 16:
+	_sfx_players.resize(POOL_SIZE)
+	for i in POOL_SIZE:
 		var p = AudioStreamPlayer.new()
 		p.bus = "Master"
 		add_child(p)
-		_sfx_players.append(p)
+		_sfx_players[i] = p
 	_music_player = AudioStreamPlayer.new()
 	_music_player.bus = "Master"
 	_music_player.volume_db = -10
 	add_child(_music_player)
 
 func play_sfx(type):
-	var stream = _generate_sfx(type)
+	var stream = _get_sfx_stream(type)
 	if stream == null:
 		return
+
+	# Prefer a free player.
 	for p in _sfx_players:
 		if not p.playing:
-			p.stream = stream
-			p.volume_db = randf_range(-3, 0)
-			p.pitch_scale = randf_range(0.92, 1.08)
-			p.play()
+			_configure_player(p, stream)
 			return
-	var p = _sfx_players[0]
-	p.stream = stream
-	p.play()
+
+	# All players busy: stop the oldest one and reuse it.
+	var oldest = _sfx_players[0]
+	oldest.stop()
+	_configure_player(oldest, stream)
 
 func play_music(track):
-	var stream = _generate_music(track)
+	var stream = _get_music_stream(track)
 	if stream == null:
 		return
-	if _music_player.stream != null and _music_player.playing:
+	if _music_player.playing:
 		_music_player.stop()
 	_music_player.stream = stream
 	_music_player.play()
@@ -42,6 +50,28 @@ func play_music(track):
 func stop_music():
 	if _music_player and _music_player.playing:
 		_music_player.stop()
+
+func _configure_player(p, stream):
+	p.stream = stream
+	p.volume_db = randf_range(-3, 0)
+	p.pitch_scale = randf_range(0.92, 1.08)
+	p.play()
+
+func _get_sfx_stream(type):
+	if _sfx_cache.has(type):
+		return _sfx_cache[type]
+	var stream = _generate_sfx(type)
+	if stream != null:
+		_sfx_cache[type] = stream
+	return stream
+
+func _get_music_stream(track):
+	if _music_cache.has(track):
+		return _music_cache[track]
+	var stream = _generate_music(track)
+	if stream != null:
+		_music_cache[track] = stream
+	return stream
 
 func _generate_sfx(type):
 	var rate = 22050.0
@@ -66,6 +96,7 @@ func _generate_sfx(type):
 		duration = 0.5
 	else:
 		return null
+
 	var frames = int(rate * duration)
 	var stream = AudioStreamWAV.new()
 	stream.mix_rate = rate
@@ -75,6 +106,7 @@ func _generate_sfx(type):
 	data.resize(frames * 2)
 	var phase = 0.0
 	var phase2 = 0.0
+
 	for i in frames:
 		var p = float(i) / rate
 		var s = 0.0
@@ -108,15 +140,12 @@ func _generate_sfx(type):
 			phase2 += f * 1.5 / rate
 			s = (sin(phase * TAU) + sin(phase2 * TAU) * 0.5) * exp(-p * 3.0) * 0.7
 		elif type == "warning":
-			# 警示音：双音警报，3 次重复
 			var cycle = fmod(p, 0.18)
 			var in_burst = cycle < 0.08
 			if in_burst:
 				var f = 880.0
 				phase += f / rate
 				s = sin(phase * TAU) * 0.5
-			else:
-				s = 0.0
 		s = clamp(s, -1.0, 1.0)
 		var sample = int(s * 32767.0)
 		data[i * 2] = sample & 0xff
@@ -131,6 +160,7 @@ func _generate_music(track):
 	var beats = 16.0
 	var duration = beat_dur * beats
 	var frames = int(rate * duration)
+
 	var stream = AudioStreamWAV.new()
 	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	stream.loop_begin = 0
@@ -140,13 +170,18 @@ func _generate_music(track):
 	stream.stereo = false
 	var data = PackedByteArray()
 	data.resize(frames * 2)
+
 	var notes = [392.0, 523.25, 659.25, 523.25, 392.0, 329.63, 392.0, 523.25,
-				 440.0, 587.33, 698.46, 587.33, 440.0, 349.23, 440.0, 523.25]
+				  440.0, 587.33, 698.46, 587.33, 440.0, 349.23, 440.0, 523.25]
 	if track == "menu":
 		notes = [261.63, 329.63, 392.0, 329.63, 261.63, 196.0, 261.63, 329.63,
 				 293.66, 349.23, 440.0, 349.23, 293.66, 220.0, 293.66, 349.23]
+	elif track != "game":
+		return null
+
 	var bass_notes = [98.0, 130.81, 146.83, 110.0, 98.0, 87.31, 98.0, 130.81,
-					  110.0, 146.83, 164.81, 130.81, 110.0, 98.0, 110.0, 146.83]
+					   110.0, 146.83, 164.81, 130.81, 110.0, 98.0, 110.0, 146.83]
+
 	for i in frames:
 		var t = float(i) / rate
 		var beat_idx = int(t / beat_dur)

@@ -46,18 +46,7 @@ func _hitstop(duration: float = 0.05):
 	hitstop_timer = max(hitstop_timer, duration)
 
 func _ready():
-	# 运行时兜底：alt_shoot
-	if not InputMap.has_action("alt_shoot"):
-		InputMap.add_action("alt_shoot")
-		var ev = InputEventKey.new()
-		ev.keycode = KEY_SHIFT
-		InputMap.action_add_event("alt_shoot", ev)
-	# 兜底注册 dash（L 键）
-	if not InputMap.has_action("dash"):
-		InputMap.add_action("dash")
-		var ev2 = InputEventKey.new()
-		ev2.keycode = KEY_L
-		InputMap.action_add_event("dash", ev2)
+	# 输入动作已在 main.gd 中统一兜底注册；游戏场景内无需重复注册
 	screen_size = get_viewport_rect().size
 	_gm().reset_run()
 	_gm().lives = 3
@@ -101,7 +90,7 @@ func _toggle_pause():
 
 func _collisions_check():
 	for enemy in enemies.get_children():
-		if not is_instance_valid(enemy):
+		if not is_instance_valid(enemy) or not enemy is Area2D:
 			continue
 		if player.overlaps_area(enemy):
 			player.take_damage(2)
@@ -109,7 +98,7 @@ func _collisions_check():
 				enemy.take_damage(99)
 			break
 	for b in bullets.get_children():
-		if not is_instance_valid(b):
+		if not is_instance_valid(b) or not b is Area2D:
 			continue
 		if b.is_enemy:
 			if player.overlaps_area(b):
@@ -117,7 +106,7 @@ func _collisions_check():
 				b.queue_free()
 			continue
 		for enemy in enemies.get_children():
-			if not is_instance_valid(enemy):
+			if not is_instance_valid(enemy) or not enemy is Area2D:
 				continue
 			if b.overlaps_area(enemy):
 				if enemy.has_method("take_damage"):
@@ -126,7 +115,7 @@ func _collisions_check():
 				b.queue_free()
 				break
 	for p in powerups.get_children():
-		if not is_instance_valid(p):
+		if not is_instance_valid(p) or not p is Area2D:
 			continue
 		if player.overlaps_area(p):
 			player.apply_powerup(p.powerup_type)
@@ -240,6 +229,8 @@ func _spawn_boss(n: int):
 	b.position = Vector2(screen_size.x / 2, -120)
 	b.killed.connect(_on_boss_killed)
 	b.damaged.connect(_on_boss_damaged)
+	# 明确指定子弹容器，避免 boss 内部依赖 get_parent()
+	b.set_projectile_container(bullets)
 	enemies.add_child(b)
 	# 全屏警告
 	wave_label.text = "⚠ BOSS  WAVE %d ⚠" % n
@@ -310,6 +301,8 @@ func _make_enemy(type: int) -> Node:
 	e.enemy_type = type
 	e.speed *= (1.0 + (wave - 1) * 0.1)
 	e.killed.connect(_on_enemy_killed)
+	# 明确传递子弹容器，避免 enemy 依赖 get_parent()
+	e.set_projectile_container(bullets)
 	return e
 
 func _spawn_formation():
@@ -337,6 +330,7 @@ func _spawn_formation():
 				enemies.add_child(e)
 
 func _on_powerup_timer_timeout():
+	pass
 	_spawn_powerup()
 
 func _spawn_powerup():
@@ -517,12 +511,19 @@ func retry():
 	get_tree().paused = false
 	process_mode = Node.PROCESS_MODE_INHERIT
 	var new_game = preload("res://scenes/game.tscn").instantiate()
-	get_parent().add_child(new_game)
+	_get_scene_holder().add_child(new_game)
 	queue_free()
 
 func to_menu():
 	get_tree().paused = false
 	process_mode = Node.PROCESS_MODE_INHERIT
 	var menu = preload("res://scenes/menu.tscn").instantiate()
-	get_parent().add_child(menu)
+	_get_scene_holder().add_child(menu)
 	queue_free()
+
+# 返回承载游戏场景的根节点：优先找 Main，否则回退到 root
+func _get_scene_holder() -> Node:
+	var n = get_parent()
+	while n != null and n.name != "Main":
+		n = n.get_parent()
+	return n if n != null else get_tree().root

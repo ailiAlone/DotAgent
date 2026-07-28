@@ -28,6 +28,10 @@ var horizontal_freq = 0.0
 var start_x = 0.0
 var aim_at_player = false
 var is_elite: bool = false
+var projectile_container: Node = null
+
+func set_projectile_container(container: Node):
+	projectile_container = container
 
 func _ready():
 	screen_size = get_viewport_rect().size
@@ -150,22 +154,28 @@ func fire():
 	_spawn_bullet(dir)
 
 func _spawn_bullet(dir: Vector2):
-	var parent = get_parent()
-	if parent == null:
+	var container = _get_container()
+	if container == null:
 		return
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	b.position = position + shoot_offset
 	b.set("velocity", dir * 380.0)
-	parent.add_child(b)
+	container.add_child(b)
 
 func _spawn_minion():
-	var parent = get_parent()
-	if parent == null:
+	var container = _get_container()
+	if container == null:
 		return
 	var e = preload("res://scenes/enemy.tscn").instantiate()
 	e.enemy_type = 0  # SCOUT
 	e.position = position + Vector2(randf_range(-30, 30), 20)
-	parent.add_child(e)
+	container.add_child(e)
+
+func _get_container() -> Node:
+	if projectile_container != null:
+		return projectile_container
+	return get_parent()
+
 
 func take_damage(dmg = 1):
 	hp -= dmg
@@ -184,13 +194,13 @@ func die():
 	queue_free()
 
 func _carrier_split():
-	var parent = get_parent()
-	if not parent: return
+	var container = _get_container()
+	if not container: return
 	for i in range(randi_range(2, 3)):
 		var s = load("res://scenes/enemy.tscn").instantiate()
 		s.enemy_type = EnemyType.SCOUT
 		s.position = position + Vector2(randf_range(-40, 40), randf_range(-20, 20))
-		parent.add_child(s)
+		container.add_child(s)
 
 func _draw():
 	var body: PackedVector2Array

@@ -18,6 +18,7 @@ var last_lives = 0
 var last_hp = 0
 var last_max_hp = 0
 var _wave_num: int = 1
+var _weapon_level: int = 0
 
 func _ready():
 	_gm().score_changed.connect(_on_score_changed)
@@ -52,15 +53,26 @@ func _process(_delta):
 			powerup_label.modulate = Color(0.3, 0.9, 1.0, 0.9)
 		else:
 			powerup_label.modulate.a = max(0, powerup_label.modulate.a - _delta * 0.5)
-		# 武器等级
-		if player_ref.has_method("add_weapon_xp"):
-			wave_label.text = "W%d Lv.%d" % [_wave_num, player_ref.weapon_level]
 
 func attach_player(p):
 	player_ref = p
+	if p.powerup_collected.is_connected(_flash_powerup):
+		p.powerup_collected.disconnect(_flash_powerup)
 	p.powerup_collected.connect(_flash_powerup)
+	if p.weapon_level_changed.is_connected(_on_weapon_level_changed):
+		p.weapon_level_changed.disconnect(_on_weapon_level_changed)
+	p.weapon_level_changed.connect(_on_weapon_level_changed)
 	last_max_hp = p.max_hp
 	last_hp = p.hp
+	_weapon_level = p.weapon_level
+	_update_wave_label()
+
+func _on_weapon_level_changed(level):
+	_weapon_level = level
+	_update_wave_label()
+
+func _update_wave_label():
+	wave_label.text = "W%d Lv.%d" % [_wave_num, _weapon_level]
 
 func _flash_powerup(_type):
 	var names = ["♥ HEAL!", "⚡ RAPID!", "🛡 SHIELD!", "💣 BOMB!", "x2 SCORE!", "⬆ WEAPON!"]
@@ -74,7 +86,7 @@ func get_wave_num() -> int:
 
 func set_wave(v):
 	_wave_num = v
-	wave_label.text = "W%d" % v
+	_update_wave_label()
 	wave_label.modulate = Color(1, 1, 0.4)
 	var t = create_tween()
 	t.tween_property(wave_label, "modulate", Color(1, 1, 1), 0.5)

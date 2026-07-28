@@ -46,7 +46,8 @@ func _on_start():
 	_am().play_sfx("click")
 	_am().stop_music()
 	var game = preload("res://scenes/game.tscn").instantiate()
-	get_parent().add_child(game)
+	var holder = _get_scene_holder()
+	holder.add_child(game)
 	queue_free()
 
 func _on_quit():
@@ -58,3 +59,10 @@ func _animate_title():
 	var tw = create_tween().set_loops()
 	tw.tween_property(title, "scale", Vector2(1.05, 1.05), 1.5).set_trans(Tween.TRANS_SINE)
 	tw.tween_property(title, "scale", Vector2(0.97, 0.97), 1.5).set_trans(Tween.TRANS_SINE)
+
+# 返回场景承载节点：优先 Main，否则回退 root
+func _get_scene_holder() -> Node:
+	var n = get_parent()
+	while n != null and n.name != "Main":
+		n = n.get_parent()
+	return n if n != null else get_tree().root

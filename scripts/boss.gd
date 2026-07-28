@@ -28,6 +28,15 @@ var hit_flash = 0.0
 var entry_y = -120.0
 var landed = false
 var shake_on_hit = 0.3
+var projectile_container: Node = null
+
+func set_projectile_container(container: Node):
+	projectile_container = container
+
+func _get_container() -> Node:
+	if projectile_container != null:
+		return projectile_container
+	return get_parent()
 
 func _ready():
 	screen_size = get_viewport_rect().size
@@ -57,13 +66,13 @@ func die():
 	_am().play_sfx("explode")
 	killed.emit(score_value, position)
 	# 多次爆炸形成大爆裂
-	var parent = get_parent()
-	if parent:
+	var container = _get_container()
+	if container:
 		var exp = preload("res://scenes/explosion.tscn").instantiate()
 		exp.position = position
 		exp.size = 3.0
 		exp.color = Color(1.0, 0.4, 0.8)
-		parent.add_child(exp)
+		container.add_child(exp)
 	queue_free()
 
 func _process(delta):
@@ -98,41 +107,40 @@ func _shoot_interval() -> float:
 func fire_pattern():
 	_am().play_sfx("shoot")
 	var player = get_tree().get_first_node_in_group("player")
-	# 用 get_parent() 不用 current_scene：boss 既可能作为 current_scene 单独跑，也可能被加到 Enemies 节点下
-	var enemies_node = get_parent()
-	if enemies_node == null:
+	var container = _get_container()
+	if container == null:
 		return
 	match phase:
 		0:
 			# 单发朝向玩家
-			_spawn_bullet_to(enemies_node, position + Vector2(0, 50), player)
+			_spawn_bullet_to(container, position + Vector2(0, 50), player)
 		1:
 			# 三连发扇形
 			for ang in [-0.3, 0, 0.3]:
 				var dir = Vector2(sin(ang), cos(ang))
 				if player:
 					dir = (player.position - position).normalized().rotated(ang)
-				_spawn_bullet_dir(enemies_node, position + Vector2(0, 50), dir)
+				_spawn_bullet_dir(container, position + Vector2(0, 50), dir)
 		2:
 			# 环形弹幕
 			for i in 16:
 				var a = (TAU / 16) * i + t * 2
 				var dir = Vector2(cos(a), sin(a))
-				_spawn_bullet_dir(enemies_node, position + Vector2(0, 50), dir)
+				_spawn_bullet_dir(container, position + Vector2(0, 50), dir)
 
-func _spawn_bullet_to(parent, pos, target):
+func _spawn_bullet_to(container, pos, target):
 	if target == null:
-		_spawn_bullet_dir(parent, pos, Vector2.DOWN)
+		_spawn_bullet_dir(container, pos, Vector2.DOWN)
 		return
 	var dir = (target.position - position).normalized()
-	_spawn_bullet_dir(parent, pos, dir)
+	_spawn_bullet_dir(container, pos, dir)
 
-func _spawn_bullet_dir(parent, pos, dir):
+func _spawn_bullet_dir(container, pos, dir):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	b.position = pos
 	b.velocity = dir * 340.0
 	b.color = Color(1.0, 0.3, 0.7) if phase >= 1 else Color(1.0, 0.6, 0.3)
-	parent.add_child(b)
+	container.add_child(b)
 
 func _draw():
 	var w = 90

@@ -27,21 +27,21 @@ func _unhandled_input(event):
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
-			# 找 game 调 _toggle_pause
-			var game = get_tree().current_scene
+			var game = _find_game()
 			if game and game.has_method("_toggle_pause"):
 				game._toggle_pause()
 			get_viewport().set_input_as_handled()
 
 func _on_resume():
 	_am().play_sfx("click")
-	var game = get_tree().current_scene
+	var game = _find_game()
 	if game and game.has_method("_toggle_pause"):
 		game._toggle_pause()
 
 func _on_restart():
 	_am().play_sfx("click")
 	get_tree().paused = false
+	var holder = _get_scene_holder()
 	var game_scene = load("res://scenes/game.tscn")
 	if game_scene == null:
 		push_error("pause_menu._on_restart: failed to load game scene")
@@ -50,13 +50,13 @@ func _on_restart():
 	if new_game == null:
 		push_error("pause_menu._on_restart: failed to instantiate game")
 		return
-	get_parent().add_child(new_game)
+	holder.add_child(new_game)
 	queue_free()
 
 func _on_menu():
 	_am().play_sfx("click")
 	get_tree().paused = false
-	# 用 load 替代 preload + 防御性检查（pause 上下文下 preload 行为可能异常）
+	var holder = _get_scene_holder()
 	var menu_scene = load("res://scenes/menu.tscn")
 	if menu_scene == null:
 		push_error("pause_menu._on_menu: Failed to load res://scenes/menu.tscn")
@@ -65,5 +65,24 @@ func _on_menu():
 	if m == null:
 		push_error("pause_menu._on_menu: Failed to instantiate menu scene")
 		return
-	get_parent().add_child(m)
+	holder.add_child(m)
 	queue_free()
+
+# 找到当前 Game 实例：优先 current_scene，否则在 Main 下查找
+func _find_game() -> Node:
+	var current = get_tree().current_scene
+	if current and (current.name == "Game" or current.has_method("_toggle_pause")):
+		return current
+	var main = _get_scene_holder()
+	if main:
+		for c in main.get_children():
+			if c.name == "Game" or c.has_method("_toggle_pause"):
+				return c
+	return null
+
+# 返回场景承载节点：优先 Main，否则回退 root
+func _get_scene_holder() -> Node:
+	var n = get_parent()
+	while n != null and n.name != "Main":
+		n = n.get_parent()
+	return n if n != null else get_tree().root
