@@ -431,10 +431,11 @@ func _build_request_body(messages: Array, tools: Array, stream: bool) -> String:
 
 		processed.append({"role": msg.get("role", "user"), "content": parts})
 
+	var model := _config.get_model()
+
 	var body := {
-		"model": _config.get_model(),
+		"model": model,
 		"messages": processed,
-		"temperature": _config.get_temperature(),
 		"max_tokens": _config.get_max_tokens() * 1000,
 		"stream": stream,
 	}

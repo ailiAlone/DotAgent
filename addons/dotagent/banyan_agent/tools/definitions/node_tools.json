@@ -1,0 +1,748 @@
+{
+  "layer": "node",
+  "description": "Unified tool set for all Banyan nodes. Every node is identical -- same perception tools, same execution tools, same spawn capability.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "spawn_child",
+        "description": "Create a NEW child node when a part of the project deserves its own attention. Only use this when no existing child can handle the task. If you already have a child that manages this area, use route_to_child instead.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task_description": {
+              "type": "string",
+              "description": "Clear description of what the child should do"
+            },
+            "name": {
+              "type": "string",
+              "description": "Name for the new child node"
+            }
+          },
+          "required": ["task_description"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "route_to_child",
+        "description": "Send a task to an EXISTING child node. The child already holds knowledge about its domain and will handle the task using its accumulated context. Use this when the task falls within a child's area. Check your child nodes list to find the right one.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "child_name": {
+              "type": "string",
+              "description": "The name of the existing child node to route the task to"
+            },
+            "task_description": {
+              "type": "string",
+              "description": "Clear description of what the child should do"
+            }
+          },
+          "required": ["child_name", "task_description"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "wait_for_children",
+        "description": "Wait for all spawned children (or a specific child) to complete. Call this after spawn_child to collect results.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Optional: wait for specific child only"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "description": "Max wait time (default 600)",
+              "default": 600
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_children",
+        "description": "List all spawned children with their current state.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_files",
+        "description": "List files under a directory. Returns array of res:// paths. Use this FIRST to discover the project structure before reading files.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "directory": {
+              "type": "string",
+              "description": "Directory to list (default 'res://')",
+              "default": "res://"
+            },
+            "pattern": {
+              "type": "string",
+              "description": "Optional filter, e.g. '*.gd' or '*.tscn'"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_scenes",
+        "description": "List all .tscn scene files in the project.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_resources",
+        "description": "List all custom resource files (.tres, .res) in the project.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_multiple_files",
+        "description": "Read multiple files at once. Returns JSON {path: content}. Reads most script files in full by default.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Array of res:// paths"
+            },
+            "max_chars_per_file": {
+              "type": "integer",
+              "description": "Max chars per file (default 50000 — reads most files in full)",
+              "default": 50000
+            }
+          },
+          "required": ["paths"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file_tail",
+        "description": "Read the last N characters or lines of a file. Use when you need just the end portion of a very large non-script file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "res:// path to the file"
+            },
+            "max_chars": {
+              "type": "integer",
+              "description": "Max chars from end (default 3000)",
+              "default": 3000
+            },
+            "max_lines": {
+              "type": "integer",
+              "description": "Max lines from end (0 = use max_chars instead)",
+              "default": 0
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "build_scene",
+        "description": "Create a complete scene file (.tscn) with structured JSON definition. Supports root node, children hierarchy, scripts, sub-resources, and unique names. This is the primary way to create scenes -- never write .tscn as text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Scene file path (e.g. 'res://scenes/player.tscn')"
+            },
+            "root": {
+              "type": "object",
+              "description": "Root node definition: {type, name, properties}",
+              "properties": {
+                "type": { "type": "string" },
+                "name": { "type": "string" },
+                "properties": { "type": "object" }
+              },
+              "required": ["type", "name"]
+            },
+            "scripts": {
+              "type": "array",
+              "items": { "type": "object" },
+              "description": "Script attachments: [{path, node_path}]"
+            },
+            "children": {
+              "type": "array",
+              "description": "Child node definitions (recursive structure like root)"
+            },
+            "sub_resources": {
+              "type": "array",
+              "items": { "type": "object" },
+              "description": "Sub-resources: [{id, type, properties}]"
+            },
+            "unique_names": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Node paths to mark as unique names"
+            },
+            "open_in_editor": {
+              "type": "boolean",
+              "description": "Open the scene in editor after creation",
+              "default": true
+            }
+          },
+          "required": ["path", "root"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "patch_scene",
+        "description": "Apply structured patch operations to an existing scene. Operations: set (properties), add (child node), remove (node), add_sub_resource, connect_signal, reparent. Never edit .tscn as text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Scene file path to patch"
+            },
+            "operations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "type": "string",
+                    "enum": ["set", "add", "remove", "add_sub_resource", "connect_signal", "reparent"]
+                  }
+                }
+              },
+              "description": "Array of patch operations. Each op has different fields: set{node_path,properties}, add{parent_path,type,name,properties}, remove{node_path}, connect_signal{node_path,signal,target_path,method}, reparent{node_path,new_parent_path}"
+            }
+          },
+          "required": ["path", "operations"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "build_script",
+        "description": "Create a complete GDScript file from structured definition. Specify class_name, extends, signals, exports, methods with signatures. The tool generates properly formatted GDScript.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Script file path (e.g. 'res://scripts/player.gd')"
+            },
+            "class_name": {
+              "type": "string",
+              "description": "Optional class_name declaration"
+            },
+            "extends": {
+              "type": "string",
+              "description": "Base class to extend",
+              "default": "Node"
+            },
+            "doc_comment": {
+              "type": "string",
+              "description": "Class-level documentation comment"
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "params": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "description": "Signal declarations"
+            },
+            "exports": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string" },
+                  "default": {},
+                  "annotation": { "type": "string" }
+                }
+              },
+              "description": "@export variable declarations"
+            },
+            "constants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "value": {},
+                  "type": { "type": "string" }
+                }
+              },
+              "description": "const declarations"
+            },
+            "onready_refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "path": { "type": "string" },
+                  "type": { "type": "string" }
+                }
+              },
+              "description": "@onready node references"
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "params": { "type": "array", "items": { "type": "string" } },
+                  "return_type": { "type": "string" },
+                  "body": { "type": "string" },
+                  "is_static": { "type": "boolean" }
+                }
+              },
+              "description": "Method definitions with full body code"
+            },
+            "validate_syntax": {
+              "type": "boolean",
+              "description": "Run syntax check after creation",
+              "default": true
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_script",
+        "description": "Update an existing script file with new content. Use for modifying script logic.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Script file path to update"
+            },
+            "content": {
+              "type": "string",
+              "description": "New complete script content"
+            },
+            "validate_syntax": {
+              "type": "boolean",
+              "description": "Run syntax check after update",
+              "default": true
+            }
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "configure_resource",
+        "description": "Create or update a .tres resource file with structured properties. Supports any Resource type including custom extends.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Resource file path (e.g. 'res://resources/player_stats.tres')"
+            },
+            "properties": {
+              "type": "object",
+              "description": "Property key-value pairs to set on the resource"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["create", "update", "create_or_update"],
+              "description": "Operation mode",
+              "default": "create_or_update"
+            },
+            "type": {
+              "type": "string",
+              "description": "Resource type (required for create)"
+            }
+          },
+          "required": ["path", "properties"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "configure_project",
+        "description": "Modify project.godot settings, autoloads, input actions, or main scene.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "settings": {
+              "type": "object",
+              "description": "Project settings to set (key-value pairs)"
+            },
+            "autoloads": {
+              "type": "object",
+              "properties": {
+                "add": { "type": "array", "items": { "type": "object" } },
+                "remove": { "type": "array", "items": { "type": "string" } }
+              },
+              "description": "Add or remove autoload singletons"
+            },
+            "input_actions": {
+              "type": "object",
+              "properties": {
+                "add": { "type": "array", "items": { "type": "object" } },
+                "remove": { "type": "array", "items": { "type": "string" } }
+              },
+              "description": "Add or remove input actions"
+            },
+            "main_scene": {
+              "type": "string",
+              "description": "Set the main scene path"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_script",
+        "description": "Read the full content of a GDScript file. Use for understanding existing code before modifying it.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Script file path to read"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "replace_in_file",
+        "description": "Find and replace text in a file. Useful for targeted script edits without rewriting the entire file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path"
+            },
+            "old_text": {
+              "type": "string",
+              "description": "Text to find"
+            },
+            "new_text": {
+              "type": "string",
+              "description": "Replacement text"
+            }
+          },
+          "required": ["path", "old_text", "new_text"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_script_syntax",
+        "description": "Validate GDScript syntax without running it. Returns errors with line numbers if any.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Script file path to check"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "inspect_scene_structured",
+        "description": "Inspect a scene's structure as structured JSON: node tree, properties, signals, script interfaces. Read-only perception.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scene_path": {
+              "type": "string",
+              "description": "Path to .tscn file"
+            },
+            "focus_path": {
+              "type": "string",
+              "description": "Focus on a specific node path"
+            },
+            "include_signals": {
+              "type": "boolean",
+              "default": true
+            },
+            "include_script_interface": {
+              "type": "boolean",
+              "default": true
+            },
+            "max_depth": {
+              "type": "integer",
+              "default": 0
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "extract_script_interface",
+        "description": "Extract a script's public interface: signals, exports, methods, class structure. Read-only perception.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Script file path"
+            },
+            "include_private_methods": {
+              "type": "boolean",
+              "default": false
+            },
+            "include_body_preview": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "inspect_resource_interface",
+        "description": "Inspect a resource file's interface: exported properties, types, and values. Read-only perception.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Resource file path (.tres, .res, or any Resource)"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "analyze_signal_flow",
+        "description": "Analyze signal connections across the project: who emits, who listens, signal parameters. Read-only perception.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "description": "Analysis scope: 'project' or a specific module name",
+              "default": "project"
+            },
+            "module_filter": {
+              "type": "string",
+              "description": "Filter results to only this module"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_scene_dependencies",
+        "description": "Get all dependencies of a scene: referenced scripts, resources, other scenes. Read-only perception.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Scene file path"
+            },
+            "recursive": {
+              "type": "boolean",
+              "description": "Follow dependencies recursively",
+              "default": true
+            },
+            "reverse": {
+              "type": "boolean",
+              "description": "Find what depends ON this scene (reverse lookup)",
+              "default": false
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "screenshot_editor",
+        "description": "Capture a screenshot of the editor viewport (2D or 3D view). Useful for visual verification.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "viewport": {
+              "type": "string",
+              "description": "Viewport to capture: '2d' or '3d'",
+              "default": "2d"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_scene_capture",
+        "description": "Run a scene in the editor and capture runtime frames. Useful for verifying gameplay behavior.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scene_path": {
+              "type": "string",
+              "description": "Scene to run (uses current scene if omitted)"
+            },
+            "frames": {
+              "type": "integer",
+              "description": "Number of frames to capture",
+              "default": 60
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "save_knowledge",
+        "description": "Save an important finding for other nodes to use later. Use this when you discover architectural patterns, non-obvious dependencies, or pitfalls. The summary field is REQUIRED — do not call this tool if you have nothing concrete to save.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string",
+              "description": "REQUIRED. A clear, concise statement of what you learned. Example: 'Player shield uses signal shield_depleted, duration 3s, cooldown 5s'"
+            },
+            "category": {
+              "type": "string",
+              "enum": ["interface", "decision", "dependency", "lesson"],
+              "description": "Knowledge category. Default: 'general'"
+            },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional tags for searching"
+            }
+          },
+          "required": ["summary"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "query_knowledge",
+        "description": "Query stored knowledge before starting work. Check existing interfaces, past decisions, and lessons learned to avoid repeating mistakes and to align with existing patterns.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "module": {
+              "type": "string",
+              "description": "Module name to query. Omit to see all module summaries."
+            },
+            "category": {
+              "type": "string",
+              "enum": ["interface", "decision", "dependency", "lesson"],
+              "description": "Filter by category"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_knowledge",
+        "description": "Search all knowledge entries by keyword. Find relevant interfaces, decisions, and lessons before starting work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "keyword": {
+              "type": "string",
+              "description": "Search keyword (case-insensitive)"
+            },
+            "module": {
+              "type": "string",
+              "description": "Limit to a specific module"
+            },
+            "category": {
+              "type": "string",
+              "enum": ["interface", "decision", "dependency", "lesson"],
+              "description": "Limit to a specific category"
+            }
+          },
+          "required": ["keyword"]
+        }
+      }
+    }
+  ]
+}

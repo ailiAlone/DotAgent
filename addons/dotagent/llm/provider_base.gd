@@ -63,7 +63,7 @@ func normalize_messages(messages: Array) -> Dictionary:
 ## 构造请求 JSON 字符串
 ## messages + tools + stream + system 由 normalize_messages 提供
 ## 返回值: {body: String, extra: Dictionary}  extra 可包含 max_tokens 等强制参数
-func build_request_body(model: String, messages: Array, tools: Array, stream: bool, temperature: float, max_tokens: int) -> Dictionary:
+func build_request_body(model: String, messages: Array, tools: Array, stream: bool, max_tokens: int) -> Dictionary:
 	push_error("LLMProvider subclass must override build_request_body()")
 	return {"body": "", "extra": {}}
 

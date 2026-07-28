@@ -1,0 +1,104 @@
+[gd_scene load_steps=2 format=3 uid="uid://d3k7w2q1yaa5p"]
+
+[ext_resource type="Script" uid="uid://co2eq4pumtvrj" path="res://addons/dotagent/ui/dotagent_dock.gd" id="1_script"]
+
+[node name="DotAgent" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Header" type="HBoxContainer" parent="."]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.7, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "Banyan"
+
+[node name="Status" type="Label" parent="Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.5, 0.5, 1)
+theme_override_font_sizes/font_size = 12
+text = " Idle"
+
+[node name="Spacer" type="Control" parent="Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ContextLabel" type="Label" parent="Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.36, 0.84, 0.36, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="NewBtn" type="Button" parent="Header"]
+custom_minimum_size = Vector2(28, 0)
+layout_mode = 2
+tooltip_text = "New Session"
+text = "+"
+
+[node name="SettingsBtn" type="Button" parent="Header"]
+custom_minimum_size = Vector2(28, 0)
+layout_mode = 2
+tooltip_text = "Settings"
+text = "⚙"
+
+[node name="MsgScroll" type="ScrollContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+horizontal_scroll_mode = 0
+
+[node name="MsgList" type="VBoxContainer" parent="MsgScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Sep" type="HSeparator" parent="."]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="PromptInput" type="TextEdit" parent="."]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "输入任务描述..."
+wrap_mode = 1
+
+[node name="BottomBar" type="HBoxContainer" parent="."]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+
+[node name="ModelLabel" type="Label" parent="BottomBar"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Model:"
+
+[node name="ModelButton" type="Button" parent="BottomBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Click to change model"
+text = "kimi-for-coding"
+
+[node name="RefreshBtn" type="Button" parent="BottomBar"]
+custom_minimum_size = Vector2(28, 0)
+layout_mode = 2
+tooltip_text = "Refresh model list"
+text = "↻"
+
+[node name="StopBtn" type="Button" parent="BottomBar"]
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+disabled = true
+text = "Stop"
+
+[node name="SendBtn" type="Button" parent="BottomBar"]
+custom_minimum_size = Vector2(56, 0)
+layout_mode = 2
+text = "Send"
+
+[node name="ModelPopup" type="PopupMenu" parent="."]

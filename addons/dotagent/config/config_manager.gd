@@ -66,8 +66,7 @@ func get_max_tokens() -> int:
 
 
 func get_temperature() -> float:
-	_load()
-	return float(_config.get_value("llm", "temperature", DEFAULT_TEMPERATURE))
+	return DEFAULT_TEMPERATURE
 
 
 func get_context_limit() -> int:
@@ -134,12 +133,11 @@ func save_model_settings(vision_enabled: bool, context_limit: int, compression_t
 	return err
 
 
-func save(base_url: String, api_key: String, model: String, temperature: float, context_limit: int = DEFAULT_CONTEXT_LIMIT, language: String = "zh", max_tokens_k: int = DEFAULT_MAX_TOKENS_K, vision_enabled: bool = false, proxy_host: String = DEFAULT_PROXY_HOST, proxy_port: int = DEFAULT_PROXY_PORT, provider: String = "Custom") -> Error:
+func save(base_url: String, api_key: String, model: String, context_limit: int = DEFAULT_CONTEXT_LIMIT, language: String = "zh", max_tokens_k: int = DEFAULT_MAX_TOKENS_K, vision_enabled: bool = false, proxy_host: String = DEFAULT_PROXY_HOST, proxy_port: int = DEFAULT_PROXY_PORT, provider: String = "Custom") -> Error:
 	_load()
 	_config.set_value("llm", "base_url", base_url)
 	_config.set_value("llm", "provider", provider)
 	_config.set_value("llm", "model", model)
-	_config.set_value("llm", "temperature", temperature)
 	_config.set_value("llm", "context_limit", context_limit)
 	_config.set_value("llm", "language", language)
 	_config.set_value("llm", "max_tokens_k", max_tokens_k)

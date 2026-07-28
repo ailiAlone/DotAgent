@@ -1,0 +1,20 @@
+[gd_scene load_steps=3 format=3 uid="uid://7ye1f0y8wbit"]
+
+[ext_resource type="StyleBox" path="res://addons/dotagent/banyan_agent/ui/CustomNode/node_slot.stylebox" id="1_ia5eg"]
+[ext_resource type="Script" path="res://addons/dotagent/banyan_agent/ui/CustomNode/node_slot.gd" id="1_ikfp3"]
+
+[node name="NodeSlot" type="Panel"]
+custom_minimum_size = Vector2(10, 10)
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -5.0
+offset_top = -5.0
+offset_right = 5.0
+offset_bottom = 5.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = ExtResource("1_ia5eg")
+script = ExtResource("1_ikfp3")

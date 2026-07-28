@@ -1,0 +1,56 @@
+[gd_scene load_steps=2 format=3 uid="uid://dqmy4he5124mm"]
+
+[ext_resource type="Script" path="res://addons/dotagent/banyan_agent/ui/banyan_session_popup.gd" id="1_script"]
+
+[node name="SessionPopup" type="AcceptDialog"]
+title = "Sessions"
+size = Vector2i(420, 380)
+script = ExtResource("1_script")
+
+[node name="MainVBox" type="VBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+theme_override_constants/separation = 6
+
+[node name="TopBar" type="HBoxContainer" parent="MainVBox"]
+custom_minimum_size = Vector2(0, 28)
+
+[node name="NewBtn" type="Button" parent="MainVBox/TopBar"]
+custom_minimum_size = Vector2(60, 0)
+text = "New"
+
+[node name="Spacer" type="Control" parent="MainVBox/TopBar"]
+size_flags_horizontal = 3
+
+[node name="SearchField" type="LineEdit" parent="MainVBox/TopBar"]
+custom_minimum_size = Vector2(160, 0)
+placeholder_text = "Search..."
+
+[node name="SessionList" type="ItemList" parent="MainVBox"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="ActionBar" type="HBoxContainer" parent="MainVBox"]
+custom_minimum_size = Vector2(0, 28)
+
+[node name="SwitchBtn" type="Button" parent="MainVBox/ActionBar"]
+custom_minimum_size = Vector2(70, 0)
+text = "Switch"
+
+[node name="DeleteBtn" type="Button" parent="MainVBox/ActionBar"]
+custom_minimum_size = Vector2(70, 0)
+text = "Delete"
+
+[node name="Spacer2" type="Control" parent="MainVBox/ActionBar"]
+size_flags_horizontal = 3
+
+[node name="CloseBtn" type="Button" parent="MainVBox/ActionBar"]
+custom_minimum_size = Vector2(60, 0)
+text = "Close"

@@ -82,11 +82,10 @@ func normalize_messages(messages: Array) -> Dictionary:
 	return {"messages": messages.duplicate(true), "system": ""}
 
 
-func build_request_body(model: String, messages: Array, tools: Array, stream: bool, temperature: float, max_tokens: int) -> Dictionary:
+func build_request_body(model: String, messages: Array, tools: Array, stream: bool, max_tokens: int) -> Dictionary:
 	var body := {
 		"model": model,
 		"messages": messages,
-		"temperature": temperature,
 		"max_tokens": max_tokens,
 		"stream": stream,
 	}

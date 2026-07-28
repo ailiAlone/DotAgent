@@ -429,7 +429,7 @@ func _tool_get_node_type_info(args: Dictionary) -> Dictionary:
 func _get_compile_error_via_subprocess(script_src: String) -> String:
 	# GDScript 4.x 无公开 API 获取编译错误文本。
 	# 策略：写到临时文件，用 headless Godot 子进程加载它，捕获 stderr 中的错误信息。
-	var temp_path := "res://addons/dotagent/_snippet_compile_check.gd"
+	var temp_path := "res://addons/dotagent/legacy_agent/_snippet_compile_check.gd"
 	var f := FileAccess.open(temp_path, FileAccess.WRITE)
 	if f == null:
 		return "(unable to write temp file for compile check)"

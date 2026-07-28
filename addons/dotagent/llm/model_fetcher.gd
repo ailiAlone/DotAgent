@@ -3,32 +3,42 @@ class_name ModelFetcher
 extends RefCounted
 ## 共享模型获取工具
 ##
-## 职责: 根据提供商信息获取可用模型列表。
-## 返回模型信息字典，仅包含 id/name。vision 和 context 由用户通过模型设置页面手动配置。
+## 职责: 
+##   - 从 ModelDatabase 获取提供商列表（UI 下拉框用）
+##   - 从 ModelDatabase 获取指定提供商的模型列表（不再调用 API）
 
-const ProviderFactoryType = preload("res://addons/dotagent/llm/provider_factory.gd")
-
-var _config: ConfigManager
+var _db: ModelDatabase = null
 
 
 func _init() -> void:
-	_config = ConfigManager.instance()
+	_db = ModelDatabase.new()
 
 
-## 根据提供商名称获取模型列表
+## 获取指定提供商的模型列表（从本地缓存）
 ## on_complete 回调签名: func(success: bool, models: Array[Dictionary], error_msg: String)
-func fetch_models(provider_name: String, host_node: Node, on_complete: Callable) -> void:
-	var api_key := _config.get_api_key()
-	var base_url := ""
-	if provider_name == "Custom":
-		base_url = _config.get_base_url()
-		if base_url.is_empty():
-			on_complete.call(false, [], "Base URL is empty")
-			return
-	var provider = ProviderFactoryType.create(provider_name, base_url, api_key)
-	provider.fetch_models(host_node, on_complete)
+func fetch_models(provider_name: String, _host_node: Node, on_complete: Callable) -> void:
+	var raw_models: Array = _db.get_provider_models(provider_name)
+	if raw_models.is_empty():
+		var empty: Array[Dictionary] = []
+		on_complete.call(false, empty, "No models found for provider: " + provider_name)
+	else:
+		var models: Array[Dictionary] = []
+		for m in raw_models:
+			models.append(m)
+		on_complete.call(true, models, "")
 
 
 ## 获取所有提供商定义（给 UI 渲染下拉框）
 func get_providers() -> Array:
-	return ProviderFactoryType.get_all()
+	return _db.get_providers()
+
+
+## 刷新模型数据库（从 models.dev 重新下载）
+## on_complete 回调签名: func(success: bool, message: String)
+func refresh_database(host_node: Node, on_complete: Callable) -> void:
+	_db.refresh(host_node, on_complete)
+
+
+## 获取缓存信息
+func get_cache_info() -> Dictionary:
+	return _db.get_cache_info()

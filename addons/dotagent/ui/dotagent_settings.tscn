@@ -1,0 +1,201 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/dotagent/ui/dotagent_settings.gd" id="1_script"]
+
+[node name="SettingsDialog" type="AcceptDialog"]
+oversampling_override = 1.0
+title = "DotAgent Settings"
+position = Vector2i(0, 36)
+size = Vector2i(520, 540)
+script = ExtResource("1_script")
+
+[node name="MainVBox" type="VBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -49.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="ModeSection" type="VBoxContainer" parent="MainVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ModeRow" type="HBoxContainer" parent="MainVBox/ModeSection"]
+layout_mode = 2
+
+[node name="ModeLabel" type="Label" parent="MainVBox/ModeSection/ModeRow"]
+layout_mode = 2
+text = "Mode"
+
+[node name="ModeOption" type="OptionButton" parent="MainVBox/ModeSection/ModeRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+selected = 1
+item_count = 2
+popup/item_0/text = "Legacy"
+popup/item_0/id = 0
+popup/item_1/text = "Banyan"
+popup/item_1/id = 1
+
+[node name="ModeHint" type="Label" parent="MainVBox/ModeSection"]
+layout_mode = 2
+text = "Banyan: 自组织多智能体，节点树自动分解和并行执行任务"
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="HSeparator" type="HSeparator" parent="MainVBox"]
+layout_mode = 2
+
+[node name="ProviderSection" type="VBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="ProviderLabel" type="Label" parent="MainVBox/ProviderSection"]
+layout_mode = 2
+text = "Provider"
+
+[node name="ProviderOption" type="OptionButton" parent="MainVBox/ProviderSection"]
+layout_mode = 2
+selected = 2
+item_count = 4
+popup/item_0/text = "OpenAI"
+popup/item_0/id = 0
+popup/item_1/text = "Anthropic"
+popup/item_1/id = 1
+popup/item_2/text = "Kimi For Coding"
+popup/item_2/id = 2
+popup/item_3/text = "Custom"
+popup/item_3/id = 3
+
+[node name="URLSection" type="VBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="URLLabel" type="Label" parent="MainVBox/URLSection"]
+layout_mode = 2
+text = "Base URL"
+
+[node name="URLInput" type="LineEdit" parent="MainVBox/URLSection"]
+layout_mode = 2
+text = "https://api.kimi.com/coding/v1"
+placeholder_text = "https://api.openai.com/v1"
+
+[node name="KeySection" type="VBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="KeyLabel" type="Label" parent="MainVBox/KeySection"]
+layout_mode = 2
+text = "API Key"
+
+[node name="KeyInput" type="LineEdit" parent="MainVBox/KeySection"]
+layout_mode = 2
+placeholder_text = "sk-..."
+secret = true
+
+[node name="ProxySection" type="HBoxContainer" parent="MainVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ProxyCheck" type="CheckBox" parent="MainVBox/ProxySection"]
+layout_mode = 2
+text = "Proxy"
+
+[node name="ProxyHost" type="LineEdit" parent="MainVBox/ProxySection"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+size_flags_horizontal = 10
+placeholder_text = "host"
+editable = false
+
+[node name="ProxyPort" type="SpinBox" parent="MainVBox/ProxySection"]
+layout_mode = 2
+max_value = 65535.0
+rounded = true
+editable = false
+
+[node name="BanyanSection" type="VBoxContainer" parent="MainVBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SectionLabel" type="Label" parent="MainVBox/BanyanSection"]
+layout_mode = 2
+text = "Banyan Pool"
+
+[node name="PoolRow" type="HBoxContainer" parent="MainVBox/BanyanSection"]
+layout_mode = 2
+
+[node name="PoolLabel" type="Label" parent="MainVBox/BanyanSection/PoolRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Pool Size"
+
+[node name="PoolSpin" type="SpinBox" parent="MainVBox/BanyanSection/PoolRow"]
+layout_mode = 2
+min_value = 1.0
+max_value = 8.0
+value = 4.0
+
+[node name="ParallelRow" type="HBoxContainer" parent="MainVBox/BanyanSection"]
+layout_mode = 2
+
+[node name="ParallelLabel" type="Label" parent="MainVBox/BanyanSection/ParallelRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Max Parallel Workers"
+
+[node name="ParallelSpin" type="SpinBox" parent="MainVBox/BanyanSection/ParallelRow"]
+layout_mode = 2
+min_value = 1.0
+max_value = 4.0
+value = 4.0
+
+[node name="LanguageSection" type="HBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="LangLabel" type="Label" parent="MainVBox/LanguageSection"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Language"
+
+[node name="LangOption" type="OptionButton" parent="MainVBox/LanguageSection"]
+layout_mode = 2
+selected = 0
+item_count = 2
+popup/item_0/text = "Chinese"
+popup/item_0/id = 0
+popup/item_1/text = "English"
+popup/item_1/id = 1
+
+[node name="HSeparator2" type="HSeparator" parent="MainVBox"]
+layout_mode = 2
+
+[node name="DangerBar" type="HBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="ResetBtn" type="Button" parent="MainVBox/DangerBar"]
+layout_mode = 2
+text = "Reset All Data"
+
+[node name="ResetHint" type="Label" parent="MainVBox/DangerBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "清除所有会话、节点树和知识库"
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="TestBar" type="HBoxContainer" parent="MainVBox"]
+layout_mode = 2
+
+[node name="TestBtn" type="Button" parent="MainVBox/TestBar"]
+layout_mode = 2
+text = "Test Connection"
+
+[node name="TestResult" type="Label" parent="MainVBox/TestBar"]
+layout_mode = 2
+
+[node name="Spacer" type="Control" parent="MainVBox/TestBar"]
+layout_mode = 2
+size_flags_horizontal = 3

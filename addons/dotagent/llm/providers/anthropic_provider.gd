@@ -192,7 +192,7 @@ func normalize_messages(messages: Array) -> Dictionary:
 	}
 
 
-func build_request_body(model: String, messages: Array, tools: Array, stream: bool, temperature: float, max_tokens: int) -> Dictionary:
+func build_request_body(model: String, messages: Array, tools: Array, stream: bool, max_tokens: int) -> Dictionary:
 	var normalized := normalize_messages(messages)
 	var body := {
 		"model": model,
@@ -203,8 +203,6 @@ func build_request_body(model: String, messages: Array, tools: Array, stream: bo
 	var sys: String = normalized.system
 	if not sys.is_empty():
 		body["system"] = sys
-	# temperature 在 0..1 之间
-	body["temperature"] = clampf(temperature, 0.0, 1.0)
 	if not tools.is_empty():
 		body["tools"] = _adapt_tools(tools)
 	return {"body": JSON.stringify(body), "extra": {}}

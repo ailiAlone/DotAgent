@@ -1,0 +1,174 @@
+[gd_scene load_steps=2 format=3 uid="uid://clu0otxjje662"]
+
+[ext_resource type="Script" uid="uid://rf7buusbr44" path="res://addons/dotagent/banyan_agent/ui/banyan_bottom_panel.gd" id="1_script"]
+
+[node name="BanyanBottomPanel" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_script")
+
+[node name="Split" type="HSplitContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = 500
+
+[node name="Left" type="VBoxContainer" parent="Split"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="TreeBar" type="HBoxContainer" parent="Split/Left"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="TreeTitle" type="Label" parent="Split/Left/TreeBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.7, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "Agent Graph"
+
+[node name="TreeSpacer" type="Control" parent="Split/Left/TreeBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TreeCount" type="Label" parent="Split/Left/TreeBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.5, 0.5, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="GraphEdit" type="GraphEdit" parent="Split/Left"]
+layout_mode = 2
+size_flags_vertical = 3
+snapping_enabled = false
+connection_lines_curvature = 0.3
+connection_lines_thickness = 2.0
+minimap_enabled = false
+show_grid_buttons = false
+
+[node name="Right" type="VSplitContainer" parent="Split"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+split_offset = -100
+
+[node name="Inspector" type="VBoxContainer" parent="Split/Right"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="InspectorBar" type="HBoxContainer" parent="Split/Right/Inspector"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="InspectorTitle" type="Label" parent="Split/Right/Inspector/InspectorBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.7, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "Node Inspector"
+
+[node name="InspectorSpacer" type="Control" parent="Split/Right/Inspector/InspectorBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PruneBtn" type="Button" parent="Split/Right/Inspector/InspectorBar"]
+custom_minimum_size = Vector2(60, 0)
+layout_mode = 2
+text = "Prune"
+
+[node name="InspectorScroll" type="ScrollContainer" parent="Split/Right/Inspector"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="InspectorContent" type="VBoxContainer" parent="Split/Right/Inspector/InspectorScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="IDLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 12
+
+[node name="StateLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+
+[node name="Sep1" type="HSeparator" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="RoundsLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+
+[node name="FilesLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="ChildrenLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="HistoryLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+autowrap_mode = 3
+
+[node name="Sep2" type="HSeparator" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="KnowledgeTitle" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.8, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+text = "Domain Knowledge"
+
+[node name="KnowledgeLabel" type="RichTextLabel" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+bbcode_enabled = true
+text = "[i]Select a node to inspect[/i]"
+fit_content = true
+scroll_active = false
+
+[node name="LogPane" type="VBoxContainer" parent="Split/Right"]
+visible = false
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="LogBar" type="HBoxContainer" parent="Split/Right/LogPane"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="LogTitle" type="Label" parent="Split/Right/LogPane/LogBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.7, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "Activity Log"
+
+[node name="LogSpacer" type="Control" parent="Split/Right/LogPane/LogBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LogBadge" type="Label" parent="Split/Right/LogPane/LogBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="ClearBtn" type="Button" parent="Split/Right/LogPane/LogBar"]
+custom_minimum_size = Vector2(50, 0)
+layout_mode = 2
+text = "Clear"
+
+[node name="LogScroll" type="ScrollContainer" parent="Split/Right/LogPane"]
+layout_mode = 2
+size_flags_vertical = 3
+follow_focus = true
+horizontal_scroll_mode = 0
+
+[node name="LogList" type="VBoxContainer" parent="Split/Right/LogPane/LogScroll"]
+layout_mode = 2
+size_flags_horizontal = 3

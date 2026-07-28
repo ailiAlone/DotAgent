@@ -1,0 +1,112 @@
+[gd_scene load_steps=3 format=3 uid="uid://b20hehwm5uxuv"]
+
+[ext_resource type="Script" uid="uid://bfpv07rsvp1an" path="res://addons/dotagent/banyan_agent/ui/CustomNode/custom_node.gd" id="1_script"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_3bq5v"]
+content_margin_left = 3.0
+content_margin_top = 2.0
+content_margin_right = 3.0
+content_margin_bottom = 2.0
+bg_color = Color(0.6, 0.6, 0.6, 0.25882354)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[node name="CustomNode" type="GraphElement"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -14.0
+offset_top = -14.0
+offset_right = 14.0
+offset_bottom = 14.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="GridContainer" type="GridContainer" parent="."]
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 4
+columns = 3
+
+[node name="Control" type="Control" parent="GridContainer"]
+layout_mode = 2
+
+[node name="TopContainer" type="HBoxContainer" parent="GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 6
+
+[node name="Control2" type="Control" parent="GridContainer"]
+layout_mode = 2
+
+[node name="LeftContainer" type="VBoxContainer" parent="GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="PanelContainer" type="PanelContainer" parent="GridContainer"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(20, 20)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_3bq5v")
+
+[node name="ContentContainer" type="VBoxContainer" parent="GridContainer/PanelContainer"]
+layout_mode = 2
+theme_override_constants/separation = -9
+
+[node name="NameLabel" type="Label" parent="GridContainer/PanelContainer/ContentContainer"]
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="HBoxContainer" type="HBoxContainer" parent="GridContainer/PanelContainer/ContentContainer"]
+layout_mode = 2
+
+[node name="CTXLabel" type="Label" parent="GridContainer/PanelContainer/ContentContainer/HBoxContainer"]
+layout_mode = 2
+text = "CTX_size:"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CTXValueLabel" type="Label" parent="GridContainer/PanelContainer/ContentContainer/HBoxContainer"]
+layout_mode = 2
+text = "0"
+
+[node name="HBoxContainer2" type="HBoxContainer" parent="GridContainer/PanelContainer/ContentContainer"]
+layout_mode = 2
+
+[node name="FilesCountLabel" type="Label" parent="GridContainer/PanelContainer/ContentContainer/HBoxContainer2"]
+layout_mode = 2
+text = "filescount:"
+horizontal_alignment = 1
+
+[node name="FilesCountValueLabel" type="Label" parent="GridContainer/PanelContainer/ContentContainer/HBoxContainer2"]
+layout_mode = 2
+text = "0"
+
+[node name="RightContainer" type="VBoxContainer" parent="GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+
+[node name="Control3" type="Control" parent="GridContainer"]
+layout_mode = 2
+
+[node name="BottomContainer" type="HBoxContainer" parent="GridContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+
+[node name="Control4" type="Control" parent="GridContainer"]
+layout_mode = 2

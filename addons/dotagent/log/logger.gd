@@ -15,7 +15,7 @@ extends RefCounted
 ##
 ## **类名不能用 "Logger",方法名不能用 "log"** — Godot 4.5 有 native 类 Logger 自带 .log(float) 方法
 
-const LOG_ROOT := "res://addons/dotagent/logs"
+const LOG_ROOT := "res://addons/dotagent/legacy_agent/logs"
 
 # ============ 自由文本 ============
 var _raw_lines: Array[String] = []  # "HH:MM:SS [SOURCE] text" 格式，实时落盘 + console 输出
@@ -164,6 +164,8 @@ func record_llm_response(finish_reason: String, tool_call_count: int, content_le
 
 ## ToolRegistry 执行完一个工具后调用
 func record_tool_result(tool_name: String, ok: bool, duration_ms: int, args: Dictionary, result_text: String) -> void:
+	if not _current_round.has("tools"):
+		_current_round["tools"] = []
 	var summary := _summarize_result(result_text)
 	_current_round["tools"].append({
 		"name": tool_name,
@@ -176,6 +178,8 @@ func record_tool_result(tool_name: String, ok: bool, duration_ms: int, args: Dic
 
 ## Reactor 每轮结束时调用
 func record_round_end(ai_text: String) -> void:
+	if _current_round.is_empty():
+		return
 	_current_round["ai_text"] = _truncate_text(ai_text, 300)
 	var duration_ms := Time.get_ticks_msec() - _round_start_ticks
 	_current_round["duration_ms"] = duration_ms

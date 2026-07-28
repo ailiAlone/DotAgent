@@ -38,8 +38,17 @@ func _ok(content: String) -> Dictionary:
 	return {"ok": true, "content": content}
 
 
+func _ok_json(data: Dictionary) -> Dictionary:
+	return {"ok": true, "content": JSON.stringify(data, "\t")}
+
+
 func _err(content: String) -> Dictionary:
 	return {"ok": false, "content": content}
+
+
+func _err_json(error: String, data: Dictionary = {}) -> Dictionary:
+	data["error"] = error
+	return {"ok": false, "content": JSON.stringify(data, "\t")}
 
 
 ## 递归遍历目录，收集匹配的文件路径
@@ -100,33 +109,67 @@ func _ensure_dir(path: String) -> void:
 ## {"x":64, "y":64} → Vector2(64, 64)
 ## "#ff8800" → Color("#ff8800")
 ## "\"text\"" → "text"（去掉 LLM 多余引号）
+## {"sub_resource": "shape1"} → 由调用者处理（外部传入 sub_resource 映射）
+## [1,2,3] → Array (递归解析)
+## {"key": "val"} → Dictionary (非 Color/Vector/Rect 时作为普通字典)
 func _parse_property_value(raw: Variant) -> Variant:
-	if typeof(raw) != TYPE_DICTIONARY and typeof(raw) != TYPE_STRING:
-		return raw
+	# Array: JSON array → Godot Array（递归解析每个元素）
+	if typeof(raw) == TYPE_ARRAY:
+		var arr: Array = []
+		for item in raw:
+			arr.append(_parse_property_value(item))
+		return arr
+	# Dictionary: 先检查是否为特殊类型，否则作为普通字典
 	if typeof(raw) == TYPE_DICTIONARY:
 		var d: Dictionary = raw
+		# sub_resource 引用 — 返回原样，由调用者解析
+		if d.has("sub_resource"):
+			return d
 		# Color: 必须有 r + g + b（a 可选）
 		if d.has("r") and d.has("g") and d.has("b"):
 			return Color(float(d.get("r", 0)), float(d.get("g", 0)), float(d.get("b", 0)), float(d.get("a", 1.0)))
-		# Vector2: 必须有 x + y
-		if d.has("x") and d.has("y") and not d.has("z"):
-			return Vector2(float(d.get("x", 0)), float(d.get("y", 0)))
-		# Vector3: x + y + z
+		# Vector3: x + y + z（必须在 Vector2 之前检查）
 		if d.has("x") and d.has("y") and d.has("z"):
+			# Vector3i: 如果全部是整数
+			if d.has("i") and d.get("i", false):
+				return Vector3i(int(d.get("x", 0)), int(d.get("y", 0)), int(d.get("z", 0)))
 			return Vector3(float(d.get("x", 0)), float(d.get("y", 0)), float(d.get("z", 0)))
+		# Vector2: 必须有 x + y
+		if d.has("x") and d.has("y"):
+			if d.has("i") and d.get("i", false):
+				return Vector2i(int(d.get("x", 0)), int(d.get("y", 0)))
+			return Vector2(float(d.get("x", 0)), float(d.get("y", 0)))
 		# Rect2: position + size
 		if d.has("position") and d.has("size"):
 			var pos = _parse_property_value(d["position"])
 			var sz = _parse_property_value(d["size"])
 			if pos is Vector2 and sz is Vector2:
 				return Rect2(pos, sz)
+		# Transform2D: x + y + origin（三个 Vector2）
+		if d.has("x") and d.has("y") and d.has("origin"):
+			var tx = _parse_property_value(d["x"])
+			var ty = _parse_property_value(d["y"])
+			var to = _parse_property_value(d["origin"])
+			if tx is Vector2 and ty is Vector2 and to is Vector2:
+				return Transform2D(tx, ty, to)
+		# 普通字典 — 递归解析值
+		var result: Dictionary = {}
+		for key in d.keys():
+			result[key] = _parse_property_value(d[key])
+		return result
+	# String: 检查特殊格式
 	if typeof(raw) == TYPE_STRING:
 		var s: String = raw
+		# Hex color
 		if s.begins_with("#") and s.length() >= 7:
 			return Color(s)
-		# LLM 有时给字符串值多包一层引号："\"text\"" → "text"
+		# NodePath: 以 "/" 开头或包含 "/" 的字符串（但不是 res://）
+		if (s.begins_with("/") or ("/" in s and not s.begins_with("res://") and not s.begins_with("user://"))) and s.length() > 1:
+			return NodePath(s)
+		# 去掉 LLM 多余引号："\"text\"" → "text"
 		if s.begins_with('"') and s.ends_with('"') and s.length() >= 2:
 			return s.substr(1, s.length() - 2)
+	# 其他类型（int, float, bool, null）直接返回
 	return raw
 
 

@@ -111,7 +111,7 @@ func get_tool_definitions() -> Array:
 		},
 		{
 			"name": "create_skill",
-			"description": "Create a new skill file in res://addons/dotagent/skills/custom/. Skills auto-load next session and are matched by trigger keywords against user messages.\n\nParameters:\n- name: kebab-case filename without .md, e.g. 'tilemap-platformer'\n- triggers: lowercase keywords, 5-15 recommended, e.g. ['tilemap', 'platformer', 'level']\n- content: markdown body. Recommended sections: Root & Structure, Key Nodes table, Mandatory Checklist, Common Mistakes (see existing skills in builtin/ for examples)\n\nAfter creating, call list_skills to verify. Overlapping triggers are OK — all matching skills get injected, they don't override each other.",
+			"description": "Create a new skill file in res://addons/dotagent/legacy_agent/skills/custom/. Skills auto-load next session and are matched by trigger keywords against user messages.\n\nParameters:\n- name: kebab-case filename without .md, e.g. 'tilemap-platformer'\n- triggers: lowercase keywords, 5-15 recommended, e.g. ['tilemap', 'platformer', 'level']\n- content: markdown body. Recommended sections: Root & Structure, Key Nodes table, Mandatory Checklist, Common Mistakes (see existing skills in builtin/ for examples)\n\nAfter creating, call list_skills to verify. Overlapping triggers are OK — all matching skills get injected, they don't override each other.",
 			"parameters": {
 				"type": "object",
 				"properties": {
@@ -255,7 +255,7 @@ func _tool_recall(args: Dictionary) -> Dictionary:
 
 
 func _tool_export_session(args: Dictionary) -> Dictionary:
-	var logs_dir := "res://addons/dotagent/logs"
+	var logs_dir := "res://addons/dotagent/legacy_agent/logs"
 	var d := DirAccess.open(logs_dir)
 	if d == null:
 		return _err("Cannot access logs")
@@ -368,7 +368,7 @@ func _tool_list_skills(args: Dictionary) -> Dictionary:
 	var sm := SkillManager.new()
 	var skills := sm.list_skills()
 	if skills.is_empty():
-		return _ok("(no skills found in res://addons/dotagent/skills/)")
+		return _ok("(no skills found in res://addons/dotagent/legacy_agent/skills/)")
 	var lines: Array = []
 	lines.append("Available skills (%d):" % skills.size())
 	for s in skills:
@@ -397,7 +397,7 @@ func _tool_create_skill(args: Dictionary) -> Dictionary:
 	var triggers_line := "# triggers: " + ", ".join(triggers)
 	var file_content := triggers_line + "\n\n" + content
 
-	var dir := "res://addons/dotagent/skills/custom"
+	var dir := "res://addons/dotagent/legacy_agent/skills/custom"
 	if not DirAccess.dir_exists_absolute(dir):
 		DirAccess.make_dir_recursive_absolute(dir)
 
