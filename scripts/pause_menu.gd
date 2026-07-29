@@ -6,7 +6,12 @@ static func _gm():
 static func _am():
 	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
 
+static func _sm():
+	return Engine.get_main_loop().root.get_node_or_null("SaveManager")
+
 @onready var resume: Button = $Center/Resume
+@onready var save_btn: Button = $Center/SaveGame
+@onready var load_btn: Button = $Center/LoadGame
 @onready var restart: Button = $Center/Restart
 @onready var menu: Button = $Center/Menu
 
@@ -14,9 +19,13 @@ func _ready():
 	# 必须 ALWAYS：暂停时按钮仍可点击、ESC 仍可解除
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	resume.text = "RESUME   继续"
+	save_btn.text = "SAVE     保存"
+	load_btn.text = "LOAD     加载"
 	restart.text = "RESTART  重玩"
 	menu.text = "MENU     主菜单"
 	resume.pressed.connect(_on_resume)
+	save_btn.pressed.connect(_on_save_game)
+	load_btn.pressed.connect(_on_load_game)
 	restart.pressed.connect(_on_restart)
 	menu.pressed.connect(_on_menu)
 	resume.grab_focus()
@@ -37,6 +46,45 @@ func _on_resume():
 	var game = _find_game()
 	if game and game.has_method("_toggle_pause"):
 		game._toggle_pause()
+
+func _on_save_game():
+	_am().play_sfx("click")
+	var sm = _sm()
+	if sm == null or not sm.has_method("save_game"):
+		push_warning("pause_menu._on_save_game: SaveManager not available")
+		return
+	var game = _find_game()
+	if game == null:
+		push_warning("pause_menu._on_save_game: Game instance not available")
+		return
+	var wave = 1
+	if game.get("wave") != null:
+		wave = game.wave
+	var gm = _gm()
+	var data = {
+		"score": gm.score if gm else 0,
+		"high_score": gm.high_score if gm else 0,
+		"wave": wave,
+		"lives": gm.lives if gm else 3,
+	}
+	var original_text = save_btn.text
+	if sm.save_game(data):
+		save_btn.text = "SAVED"
+		var t = create_tween()
+		t.tween_callback(func(): save_btn.text = original_text).set_delay(1.0)
+
+func _on_load_game():
+	_am().play_sfx("click")
+	var sm = _sm()
+	if sm == null or not sm.has_method("load_save"):
+		push_warning("pause_menu._on_load_game: SaveManager not available")
+		return
+	var game = _find_game()
+	if game == null or not game.has_method("apply_save_data"):
+		push_warning("pause_menu._on_load_game: Game instance not available")
+		return
+	var data = sm.load_save()
+	game.apply_save_data(data)
 
 func _on_restart():
 	_am().play_sfx("click")

@@ -53,6 +53,20 @@ theme_override_colors/font_color = Color(0.3, 1, 0.5, 1)
 theme_override_font_sizes/font_size = 22
 text = "RESUME"
 
+[node name="SaveGame" type="Button" parent="Center"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 1, 0.5, 1)
+theme_override_font_sizes/font_size = 22
+text = "SAVE"
+
+[node name="LoadGame" type="Button" parent="Center"]
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 1, 0.5, 1)
+theme_override_font_sizes/font_size = 22
+text = "LOAD"
+
 [node name="Restart" type="Button" parent="Center"]
 custom_minimum_size = Vector2(0, 44)
 layout_mode = 2

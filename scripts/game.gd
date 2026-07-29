@@ -50,13 +50,24 @@ func _hitstop(duration: float = 0.05):
 
 func _save_progress():
 	var sm = _sm()
-	if sm and sm.has_method("save_game"):
-		sm.save_game()
+	var gm = _gm()
+	if sm == null or gm == null:
+		push_warning("game._save_progress: SaveManager or GameManager unavailable")
+		return
+	if not sm.has_method("save_game"):
+		return
+	var data = {
+		"score": gm.score,
+		"high_score": gm.high_score,
+		"wave": wave,
+		"lives": gm.lives,
+	}
+	sm.save_game(data)
 
 func apply_save_data(data: Dictionary):
 	# 从 PauseMenuUI 的加载按钮恢复游戏进度
 	var sm = _sm()
-	if sm and sm.has_method("save_game"):
+	if sm and sm.has_method("load_save"):
 		data = sm.load_save() if data.is_empty() else data
 	if not data.has("score") or not data.has("high_score") or not data.has("lives") or not data.has("wave"):
 		push_warning("game.apply_save_data: invalid save data, aborting")
