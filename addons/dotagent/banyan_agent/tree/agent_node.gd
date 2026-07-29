@@ -242,8 +242,10 @@ func run(ticket: Dictionary = {}) -> void:
 				break
 			_round_budget = granted
 
+		var round_start_msec: int = Time.get_ticks_msec()
 		_set_node_state(NodeState.LLM_REQUEST)
 		var llm_ok: bool = await _do_llm_request()
+		var llm_elapsed: float = float(Time.get_ticks_msec() - round_start_msec) / 1000.0
 
 		if not llm_ok:
 			_failure_count += 1
@@ -285,7 +287,11 @@ func run(ticket: Dictionary = {}) -> void:
 			# content 为空时用推理流做预览 — 运行日志能看到节点在想什么
 			_current_round_trace["llm_preview"] = "[思考] " + _last_reasoning.substr(0, 280)
 
+		var action_start_msec: int = Time.get_ticks_msec()
 		var is_done: bool = await _act_on_response(action, _nudged)
+		var action_elapsed: float = float(Time.get_ticks_msec() - action_start_msec) / 1000.0
+		var total_round: float = float(Time.get_ticks_msec() - round_start_msec) / 1000.0
+		_log("Round %d timing: LLM=%.1fs action=%s/%.1fs total=%.1fs" % [_round_count, llm_elapsed, action, action_elapsed, total_round])
 
 		# 更新 nudge/redirect 状态
 		if action == ACTION_NUDGE:
