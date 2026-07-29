@@ -107,6 +107,7 @@ var _files_created: Array = []
 var _read_files: Array = []
 var _exec_actions_this_run: int = 0    # 本次运行中执行/委派类工具调用次数（只读探索不计）
 var _completion_challenged: bool = false  # 本次运行是否已挑战过"零执行收工"（每次运行最多挑战一次）
+var _nudge_count: int = 0              # 本次运行中 nudge 次数（限制 reminder 消息）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 
@@ -201,6 +202,7 @@ func run(ticket: Dictionary = {}) -> void:
 	_files_created.clear()
 	_exec_actions_this_run = 0
 	_completion_challenged = false
+	_nudge_count = 0
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -394,14 +396,15 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 	match action:
 		ACTION_NUDGE:
 			_log("Round %d: tool calls without reasoning — soft nudge (executing + reminder)" % _round_count)
-			# 软 nudge：正常执行工具，但在结果后附加提醒消息
+			_nudge_count += 1
+			# 软 nudge：正常执行工具，但前 2 次附加提醒消息（避免上下文膨胀）
 			_set_node_state(NodeState.TOOL_EXEC)
 			await _execute_tool_round(last_msg.tool_calls)
-			# 附加 nudge 提醒（不阻塞，下一轮 LLM 会看到）
-			messages.append({
-				"role": "system",
-				"content": "Reminder: Before calling tools, briefly explain your reasoning — what you need to learn, why this tool is the right step, and what you expect to find. This helps maintain a clear chain of thought.",
-			})
+			if _nudge_count <= 2:
+				messages.append({
+					"role": "system",
+					"content": "Reminder: Before calling tools, briefly explain your reasoning — what you need to learn, why this tool is the right step, and what you expect to find.",
+				})
 			return false
 
 		ACTION_EXECUTE:

@@ -31,6 +31,7 @@ var _last_activity_msec := 0  # 最近一次活动时间（空闲超时用）
 var _monitored: Dictionary = {}      # node instance → true（防止重复连接）
 var _chunk_ticks: Dictionary = {}    # node_id → [累计字符数, 上次打印时间]
 var _last_status_msec := 0           # 上次打印状态概览的时间
+var _last_status_snapshot: String = ""  # 上次状态快照（去重）
 
 
 func _initialize() -> void:
@@ -55,8 +56,23 @@ func _process(_delta: float) -> bool:
 func _print_tree_status() -> void:
 	var elapsed: float = float(Time.get_ticks_msec() - _start_msec) / 1000.0
 	var idle: float = float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0
+	# 构建快照字符串（用于去重）
+	var snapshot: String = ""
+	snapshot += _build_node_snapshot(_root_node)
+	if snapshot == _last_status_snapshot:
+		return  # 状态无变化，跳过打印
+	_last_status_snapshot = snapshot
 	print("[TREE %.0fs idle=%.0fs] ─────────────────────────" % [elapsed, idle])
 	_print_node_status(_root_node, 0)
+
+
+func _build_node_snapshot(node: AgentNode) -> String:
+	if node == null:
+		return ""
+	var s: String = "%s:%s:R%d " % [node.node_id, _state_name(node.node_state), node.get_round_count()]
+	for cname in node._children:
+		s += _build_node_snapshot(node._children[cname])
+	return s
 
 
 func _print_node_status(node: AgentNode, depth: int) -> void:

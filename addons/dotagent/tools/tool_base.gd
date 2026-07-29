@@ -228,3 +228,68 @@ func _extract_error_lines(text: String) -> Array:
 				or (s.contains(".gd:") and (lo.contains("error") or lo.contains("parse"))):
 			out.append(s)
 	return out
+
+
+## 从 project.godot 解析 autoload 单例名称列表
+## 用于过滤 --check-only 模式下的 autoload 名称误报
+func _get_autoload_names() -> Array:
+	var config := ConfigFile.new()
+	var err := config.load("res://project.godot")
+	if err != OK:
+		return []
+	var names: Array = []
+	if config.has_section("autoload"):
+		for key in config.get_section_keys("autoload"):
+			names.append(key)
+	return names
+
+
+## Run Godot --headless --check-only --script to parse a script and capture line-level errors.
+## Returns empty string on success, the extracted error lines on failure,
+## or "__UNAVAILABLE__" if the subprocess could not be started.
+func _subprocess_compile_check(path: String) -> String:
+	var godot_exe: String = OS.get_executable_path()
+	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
+		return "__UNAVAILABLE__"
+
+	var project_path: String = ProjectSettings.globalize_path("res://")
+	var script_abs: String = ProjectSettings.globalize_path(path)
+
+	var output: Array = []
+	var exit_code := OS.execute(godot_exe, [
+		"--headless", "--check-only", "--path", project_path,
+		"--script", script_abs,
+	], output, true, false)
+
+	if exit_code < 0:
+		return "__UNAVAILABLE__"
+
+	var full := "\n".join(output)
+	var errors := _extract_error_lines(full)
+	# 过滤 "非 SceneTree" 误报
+	errors = errors.filter(func(line: String) -> bool:
+		return not line.contains("doesn't inherit from SceneTree")
+	)
+
+	# 过滤 autoload 名称误报 — --check-only 不加载 autoload 单例
+	var autoload_names: Array = _get_autoload_names()
+	if not autoload_names.is_empty():
+		errors = errors.filter(func(line: String) -> bool:
+			for aname in autoload_names:
+				if line.contains("Identifier \"%s\" not found" % aname) \
+						or line.contains("Identifier not found: %s" % aname) \
+						or line.contains("\"%s\" is not declared" % aname):
+					return false
+			return true
+		)
+
+	if errors.is_empty() and exit_code != 0:
+		var preview := full.strip_edges()
+		if preview.length() > 1200:
+			preview = preview.substr(0, 1200) + "\n... (truncated)"
+		return "Compilation failed (exit %d). Output:\n%s" % [exit_code, preview]
+
+	if errors.is_empty():
+		return ""
+
+	return "\n".join(errors)

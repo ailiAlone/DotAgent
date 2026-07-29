@@ -251,7 +251,13 @@ func _tool_check_script_syntax(args: Dictionary) -> Dictionary:
 	script.source_code = source
 	var err := script.reload()
 	if err == OK: return _ok("Syntax OK")
-	return _ok("Syntax error in %s: %s" % [path, error_string(err)])
+	# 快速路径失败 — 用子进程做权威解析（过滤 autoload 误报）
+	var detail := _subprocess_compile_check(path)
+	if detail.is_empty():
+		return _ok("Syntax OK (subprocess verified)")
+	if detail == "__UNAVAILABLE__":
+		return _ok("Syntax warning: %s (subprocess unavailable, may be autoload false positive)" % error_string(err))
+	return _ok("Syntax error in %s:\n%s" % [path, detail])
 
 
 func _tool_get_script_references(args: Dictionary) -> Dictionary:

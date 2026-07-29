@@ -10,6 +10,7 @@ extends RefCounted
 
 const MAX_TOOL_RESULT_LEN := 16000  # 工具返回截断长度（4000 会把读文件结果拦腰截断，诱使模型反复重读）
 const MAX_USER_MSG_LEN := 5000      # 用户消息截断长度
+const MAX_MESSAGES := 60            # 滑动窗口：超过此数量时精简旧消息
 
 var _messages: Array  # 对 Worker 独立 messages 数组的引用
 var _logger: SessionLog
@@ -26,37 +27,68 @@ func resync(messages: Array) -> void:
 
 
 ## 构建发送给 LLM 的消息列表
-## 对 Worker 来说，messages 本身就是聚焦的，只需做轻度截断
+## 实现滑动窗口：消息超过 MAX_MESSAGES 时，保留 system 消息和最近的对话，
+## 旧消息用精简摘要替代（防止上下文无限膨胀导致 LLM 响应变慢）
 func build() -> Array:
-	var result: Array = []
+	var system_msgs: Array = []
+	var other_msgs: Array = []
 
+	# 分离 system 消息和其他消息
 	for msg in _messages:
-		var role: String = msg.get("role", "")
+		if msg.get("role", "") == "system":
+			system_msgs.append(msg)
+		else:
+			other_msgs.append(msg)
 
+	# 滑动窗口：如果非 system 消息超过阈值，保留最近的 + 旧消息摘要
+	var trimmed_count: int = 0
+	if other_msgs.size() > MAX_MESSAGES:
+		trimmed_count = other_msgs.size() - MAX_MESSAGES
+		# 统计旧消息中的工具调用
+		var old_tool_counts: Dictionary = {}
+		for i in range(trimmed_count):
+			var msg: Dictionary = other_msgs[i]
+			if msg.get("role", "") == "assistant":
+				for tc in msg.get("tool_calls", []):
+					var fn: Dictionary = tc.get("function", {})
+					var tname: String = fn.get("name", "?")
+					old_tool_counts[tname] = old_tool_counts.get(tname, 0) + 1
+		var tool_summary_parts: Array = []
+		for tname in old_tool_counts:
+			tool_summary_parts.append("%s(%d)" % [tname, old_tool_counts[tname]])
+		var summary_text: String = "Earlier in this conversation, %d messages were exchanged (trimmed for context). Tool usage: %s. Focus on recent messages below." % [trimmed_count, ", ".join(tool_summary_parts) if not tool_summary_parts.is_empty() else "none"]
+		var recent: Array = other_msgs.slice(trimmed_count)
+		other_msgs = [{"role": "system", "content": summary_text}] + recent
+
+	var result: Array = []
+	# 添加 system 消息
+	for msg in system_msgs:
+		result.append(msg)
+	# 添加其他消息（含可能的摘要）
+	for msg in other_msgs:
+		var role: String = msg.get("role", "")
 		match role:
 			"system":
 				result.append(msg)
 			"user":
 				result.append({"role": "user", "content": _truncate(msg.get("content", ""), MAX_USER_MSG_LEN)})
 			"assistant":
-				# 完整保留 — Worker 需要看到自己的思考链和 tool_calls
-				# 但跳过空 assistant 消息（content 为空且无 tool_calls），Kimi API 会拒绝
+				# 跳过空 assistant 消息（content 为空且无 tool_calls），Kimi API 会拒绝
 				var has_content: bool = msg.get("content", "") != "" and msg.get("content", null) != null
 				var has_tools: bool = msg.has("tool_calls") and not msg.get("tool_calls", []).is_empty()
 				if has_content or has_tools:
 					result.append(msg)
 			"tool":
 				var tc: Dictionary = msg.duplicate(true)
-				# 管理工具结果（wait_for_children 报告等）是蒸馏信息，不截断
 				var no_truncate: bool = tc.get("_no_truncate", false)
-				tc.erase("_no_truncate")  # 内部标记，不发给 API
+				tc.erase("_no_truncate")
 				var content: String = str(tc.get("content", ""))
 				if not no_truncate and content.length() > MAX_TOOL_RESULT_LEN:
 					tc["content"] = content.substr(0, MAX_TOOL_RESULT_LEN) + "…[%d chars]" % content.length()
 				result.append(tc)
 
 	if _logger:
-		_logger.append("CTX", "Banyan send: %d messages (from %d total)" % [result.size(), _messages.size()])
+		_logger.append("CTX", "Banyan send: %d messages (from %d total, trimmed %d)" % [result.size(), _messages.size(), trimmed_count])
 	return result
 
 
