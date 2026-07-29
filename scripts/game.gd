@@ -396,16 +396,18 @@ func _on_powerup_timer_timeout():
 func _spawn_powerup():
 	var r = randf()
 	var type: int
-	if r < 0.4:
+	if r < 0.35:
 		type = 0  # HEAL
-	elif r < 0.7:
+	elif r < 0.60:
 		type = 2  # SHIELD
-	elif r < 0.85:
+	elif r < 0.75:
 		type = 1  # RAPID_FIRE
-	elif r < 0.95:
+	elif r < 0.85:
 		type = 3  # BOMB
-	else:
+	elif r < 0.93:
 		type = 4  # SCORE_X2
+	else:
+		type = 5  # WEAPON_UPGRADE
 	var p = preload("res://scenes/powerup.tscn").instantiate()
 	p.powerup_type = type
 	p.position = Vector2(randf_range(100, screen_size.x - 100), -30)
@@ -429,21 +431,36 @@ func _on_wave_timer_timeout():
 	_announce_wave(next_wave)
 	_save_progress()
 
-func _on_player_shoot(bullet_path, pos, dir):
+func _on_player_shoot(bullet_path, pos, dir, extra = null):
 	var b = load(bullet_path).instantiate()
 	b.position = pos
-	b.velocity = dir * 900.0
+	var speed = 900.0
+	var color = Color(1.0, 0.95, 0.4)
+	var damage = 1
+	if extra is Dictionary:
+		speed = extra.get("speed", 900.0)
+		color = extra.get("color", Color(1.0, 0.95, 0.4))
+		damage = extra.get("damage", 1)
+	b.velocity = dir * speed
 	b.is_enemy = false
-	b.color = Color(1.0, 0.95, 0.4)
+	b.color = color
+	b.damage = damage
 	bullets.add_child(b)
 
-func _on_player_shoot_spread(bullet_path, pos, dir):
+func _on_player_shoot_spread(bullet_path, pos, dir, extra = null):
 	var b = load(bullet_path).instantiate()
 	b.position = pos
-	b.velocity = dir * 700.0
+	var speed = 700.0
+	var color = Color(0.4, 0.95, 1.0)
+	var damage = 1
+	if extra is Dictionary:
+		speed = extra.get("speed", 700.0)
+		color = extra.get("color", Color(0.4, 0.95, 1.0))
+		damage = extra.get("damage", 1)
+	b.velocity = dir * speed
 	b.is_enemy = false
-	b.color = Color(0.4, 0.95, 1.0)  # 散射用蓝色
-	b.damage = 1
+	b.color = color
+	b.damage = damage
 	bullets.add_child(b)
 
 func _on_player_hit():

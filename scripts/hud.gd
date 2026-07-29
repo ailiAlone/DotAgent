@@ -12,6 +12,7 @@ static func _am():
 @onready var combo_label: Label = $Margin/HBox/Combo/Value
 @onready var powerup_label: Label = $Margin/HBox/Powerup/Value
 @onready var wave_label: Label = $Margin/HBox/Wave/Value
+@onready var weapon_label: Label = $Margin/HBox/Weapon/Value
 
 var player_ref: Node = null
 var last_lives = 0
@@ -19,6 +20,7 @@ var last_hp = 0
 var last_max_hp = 0
 var _wave_num: int = 1
 var _weapon_level: int = 0
+var _weapon_type: int = 0
 
 func _ready():
 	_gm().score_changed.connect(_on_score_changed)
@@ -27,6 +29,7 @@ func _ready():
 	_on_score_changed(_gm().score)
 	_on_high_changed(_gm().high_score)
 	_on_lives_changed(_gm().lives)
+	_update_weapon_label()
 
 func _process(_delta):
 	_gm().tick_combo(_delta)
@@ -62,17 +65,35 @@ func attach_player(p):
 	if p.weapon_level_changed.is_connected(_on_weapon_level_changed):
 		p.weapon_level_changed.disconnect(_on_weapon_level_changed)
 	p.weapon_level_changed.connect(_on_weapon_level_changed)
+	if p.has_signal("weapon_type_changed"):
+		if p.weapon_type_changed.is_connected(_on_weapon_type_changed):
+			p.weapon_type_changed.disconnect(_on_weapon_type_changed)
+		p.weapon_type_changed.connect(_on_weapon_type_changed)
 	last_max_hp = p.max_hp
 	last_hp = p.hp
 	_weapon_level = p.weapon_level
+	if "weapon_type" in p:
+		_weapon_type = p.weapon_type
+	_update_weapon_label()
 	_update_wave_label()
 
 func _on_weapon_level_changed(level):
 	_weapon_level = level
-	_update_wave_label()
+	_update_weapon_label()
+
+func _on_weapon_type_changed(type):
+	_weapon_type = type
+	_update_weapon_label()
 
 func _update_wave_label():
-	wave_label.text = "W%d Lv.%d" % [_wave_num, _weapon_level]
+	wave_label.text = "W%d" % _wave_num
+
+func _update_weapon_label():
+	var ws = Engine.get_main_loop().root.get_node_or_null("WeaponSystem")
+	var type_name = "PISTOL"
+	if ws:
+		type_name = ws.weapon_type_name(_weapon_type)
+	weapon_label.text = "%s Lv.%d" % [type_name, _weapon_level]
 
 func _flash_powerup(_type):
 	var names = ["♥ HEAL!", "⚡ RAPID!", "🛡 SHIELD!", "💣 BOMB!", "x2 SCORE!", "⬆ WEAPON!"]

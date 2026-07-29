@@ -6,7 +6,7 @@ static func _gm():
 static func _am():
 	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
 
-enum PowerupType { HEAL, RAPID_FIRE, SHIELD, BOMB, SCORE_X2 }
+enum PowerupType { HEAL, RAPID_FIRE, SHIELD, BOMB, SCORE_X2, WEAPON_UPGRADE }
 
 var powerup_type: PowerupType = PowerupType.HEAL
 var velocity := Vector2(0, 120)
@@ -22,6 +22,7 @@ func _ready():
 		PowerupType.SHIELD: color = Color(0.3, 0.8, 1.0)
 		PowerupType.BOMB: color = Color(1.0, 0.3, 0.2)
 		PowerupType.SCORE_X2: color = Color(0.9, 0.3, 1.0)
+		PowerupType.WEAPON_UPGRADE: color = Color(0.95, 0.3, 1.0)
 	add_to_group("powerups")
 
 func _process(delta):
@@ -64,3 +65,8 @@ func _draw():
 			# 上下两条小横
 			draw_line(Vector2(-3, -10), Vector2(3, -10), Color.WHITE, 2)
 			draw_line(Vector2(-3, 10), Vector2(3, 10), Color.WHITE, 2)
+		PowerupType.WEAPON_UPGRADE:
+			# 向上箭头
+			draw_line(Vector2(0, 8), Vector2(0, -10), Color.WHITE, 2)
+			draw_line(Vector2(0, -10), Vector2(-6, -2), Color.WHITE, 2)
+			draw_line(Vector2(0, -10), Vector2(6, -2), Color.WHITE, 2)

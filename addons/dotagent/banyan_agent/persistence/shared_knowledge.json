@@ -159,6 +159,30 @@
 				"SaveManager"
 			],
 			"timestamp": "2026-07-29T13:37:56"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Root",
+			"summary": "Player currently has a built-in weapon_level (0-4) and weapon_xp system in player.gd. fire() hard-codes bullet patterns by weapon_level. HUD already has _weapon_level tracking and shows WAVE as W{n} Lv.{level}. Powerup enum has types HEAL/RAPID_FIRE/SHIELD/BOMB/SCORE_X2. When implementing WeaponSystem autoload, the existing per-level patterns and HUD label should be replaced/extended with type+level display.",
+			"tags": [
+				"player",
+				"weapon",
+				"hud",
+				"powerup"
+			],
+			"timestamp": "2026-07-29T14:36:47"
+		},
+		{
+			"category": "interface",
+			"node_id": "PlayerWeaponIntegration",
+			"summary": "Player shooting now uses WeaponSystem autoload. player.gd signals shoot/shoot_spread pass a 4th Dictionary argument with damage, speed, color. game.gd _on_player_shoot and _on_player_shoot_spread consume this extra dict. weapon_system.gd now has WeaponType enum, WEAPON_TYPE_* constants, WEAPON_COUNT, and get_weapon_data(type, level) returning damage, fire_rate, bullet_count, bullet_speed, spread, color.",
+			"tags": [
+				"weapon",
+				"player",
+				"signal",
+				"autoload"
+			],
+			"timestamp": "2026-07-29T14:57:50"
 		}
 	]
 }

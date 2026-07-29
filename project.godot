@@ -23,6 +23,7 @@ GameManager="*res://scripts/game_manager.gd"
 AudioManager="*res://scripts/audio_manager.gd"
 TaskRunner="*res://addons/dotagent/legacy_agent/task_runner.gd"
 ComboSystem="*res://scripts/combo_system.gd"
+WeaponSystem="*res://scripts/weapon_system.gd"
 
 [display]
 
