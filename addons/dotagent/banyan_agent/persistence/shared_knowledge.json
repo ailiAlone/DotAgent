@@ -1,0 +1,151 @@
+{
+	"entries": [
+		{
+			"category": "general",
+			"node_id": "Root",
+			"summary": "Autoload singletons: GameManager (score/lives/high-score persistence), AudioManager (procedural SFX/music, always-process), and SettingsManager (user://settings.cfg audio/difficulty). SettingsManager is registered but not used by any scene; settings_menu.tscn has no script.",
+			"tags": [
+				"singleton",
+				"autoload",
+				"audio",
+				"settings",
+				"score"
+			],
+			"timestamp": "2026-07-28T17:12:52"
+		},
+		{
+			"category": "general",
+			"node_id": "Root",
+			"summary": "Game scene architecture: Main root spawns Menu; Menu -> Game; Game manages Player, Enemies, Bullets, Powerups, Asteroids, Effects, ScreenFlash, HUD, PauseMenu. Game uses _process collisions, timers for spawn/powerup/wave/asteroid, and direct parent references for projectiles. Retry/menu flows recreate the Game scene under the same holder (Main or root).",
+			"tags": [
+				"game",
+				"main",
+				"menu",
+				"scene-flow",
+				"hud"
+			],
+			"timestamp": "2026-07-28T17:12:52"
+		},
+		{
+			"category": "general",
+			"node_id": "Root",
+			"summary": "Player controls: WASD/arrows to move, SPACE/J shoot, L dash, SHIFT alt scatter. Player has weapon level 0-4 driven by XP from kills, 5 HP, shield, rapid fire, dash. Signals: died, shoot, shoot_spread, hit, powerup_collected, weapon_level_changed. Drawing is fully procedural via _draw.",
+			"tags": [
+				"player",
+				"controls",
+				"weapon-level",
+				"dash",
+				"signals"
+			],
+			"timestamp": "2026-07-28T17:12:52"
+		},
+		{
+			"category": "general",
+			"node_id": "Root",
+			"summary": "Enemy system has 6 types (SCOUT, FIGHTER, TANK, BOMBER, SWEEPER, CARRIER). Game spawns single enemies and formations; every 5 waves a Boss spawns with 3 phases. Enemy/boss bullets use enemy_bullet.tscn which reuses bullet.gd. CARRIER spawns minions; boss dies trigger stage progression in game.gd.",
+			"tags": [
+				"enemy",
+				"boss",
+				"wave",
+				"formations",
+				"minions"
+			],
+			"timestamp": "2026-07-28T17:12:52"
+		},
+		{
+			"category": "general",
+			"node_id": "Root",
+			"summary": "Known issues/pitfalls: (1) asteroid.tscn CollisionShape2D has no shape assigned, so asteroid collisions will fail unless assigned at runtime. (2) settings_menu.tscn has no script, so the settings UI is non-functional. (3) player_trail.gd is instantiated by player but never has its tick/reset methods actually connected; the script has class_name PlayerTrail but the created trail just uses default _process logic. (4) BulletPooled and Pool exist but game.gd uses bullet.tscn and queue_free() directly, so the pool is unused. (5) Main.gd only registers alt_shoot and dash input actions as runtime fallbacks; project.godot defines all movement and shoot/pause, but alt_shoot/special are not in project.godot, so menu description may not match actual input.",
+			"tags": [
+				"issue",
+				"asteroid",
+				"settings",
+				"pool",
+				"input",
+				"trail"
+			],
+			"timestamp": "2026-07-28T17:12:52"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "SettingsManager exists as scripts/settings_manager.gd but is NOT registered as an autoload in project.godot. It is never instantiated in the current flow, and settings_menu.tscn has no script attached, so the settings UI is disconnected.",
+			"tags": [
+				"settings",
+				"autoload",
+				"ui"
+			],
+			"timestamp": "2026-07-28T17:19:11"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Root",
+			"summary": "Asteroid scene (scenes/asteroid.tscn) has a CollisionShape2D node but no shape resource assigned, so asteroid collisions with bullets/player do not work.",
+			"tags": [
+				"asteroid",
+				"collision",
+				"bug"
+			],
+			"timestamp": "2026-07-28T17:19:11"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Root",
+			"summary": "PlayerTrail is instantiated by player.gd _spawn_trail() but its tick()/reset() API is never called; the script has no _process() to auto-update, so the trail effect is effectively disabled.",
+			"tags": [
+				"player",
+				"trail",
+				"visual"
+			],
+			"timestamp": "2026-07-28T17:19:11"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "Object pool system (scripts/pool.gd + scripts/bullet_pooled.gd) exists but is not used. game.gd and enemy.gd still instantiate bullets and queue_free them directly.",
+			"tags": [
+				"pool",
+				"performance",
+				"bullet"
+			],
+			"timestamp": "2026-07-28T17:19:11"
+		},
+		{
+			"category": "dependency",
+			"node_id": "SettingsUI",
+			"summary": "SettingsManager 存在但 project.godot 的 [autoload] 未注册它，导致单例从未实例化。settings_menu.tscn 只有静态 UI 节点、没有脚本，没有 Sliders/Buttons 等交互控件，所以设置菜单完全无效。SettingsManager 使用 ConfigFile 持久化到 user://settings.cfg，提供 audio (master/sfx/music) 和 game (difficulty) 的 setter/getter/signal 接口。AudioManager 不依赖 SettingsManager，当前音乐音量 hardcoded 为 -10 dB。",
+			"tags": [
+				"settings_manager",
+				"settings_menu",
+				"autoload",
+				"config_file",
+				"ui"
+			],
+			"timestamp": "2026-07-28T17:40:31"
+		},
+		{
+			"category": "interface",
+			"node_id": "Player",
+			"summary": "PlayerTrail 的 tick()/reset() 目前无人调用：_spawn_trail() 只实例化拖尾场景并把位置设在玩家身后，但从没在玩家 _process 中调用 trail_instance.tick(delta, position)，因此拖尾光点永远不会更新，且节点常驻直到因生命耗尽而自毁（但 life 只在 tick 中减）。",
+			"tags": [
+				"Player",
+				"PlayerTrail",
+				"bug"
+			],
+			"timestamp": "2026-07-28T17:41:09"
+		},
+		{
+			"category": "interface",
+			"node_id": "ObjectPool",
+			"summary": "ObjectPool system files: pool.gd (generic Pool Node with acquire/release per scene_path), bullet_pooled.gd (class_name BulletPooled with reset/_deactivate lifecycle). Currently NOT wired into game.gd; enemy.gd/boss.gd still instantiate enemy_bullet.tscn directly, and player shoot handlers in game.gd use load().instantiate()/queue_free(). To integrate: switch bullet.tscn/enemy_bullet.tscn script to bullet_pooled.gd; add Pool instance in game.gd; implement return_bullet() and spawn_bullet(); route all bullet creation/destruction through pool; make enemy.gd/boss.gd call game.spawn_bullet() instead of preload.instantiate().",
+			"tags": [
+				"object_pool",
+				"bullet",
+				"game.gd",
+				"pool.gd",
+				"bullet_pooled.gd"
+			],
+			"timestamp": "2026-07-28T17:42:33"
+		}
+	]
+}

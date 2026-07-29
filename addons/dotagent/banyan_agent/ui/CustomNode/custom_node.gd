@@ -115,12 +115,17 @@ func get_slot(direction: String, index: int = 0) -> NodeSlot:
 	return null
 
 
-## 获取指定方向第 index 个 slot 的中心坐标
-func get_slot_center(direction: String, index: int = 0) -> Vector2:
-	var slot: NodeSlot = get_slot(direction, index)
-	if slot:
-		return slot.get_center()
-	return global_position + size * 0.5
+## 调整指定方向的 slot 数量到 count — 只增减排尾差额，已存在的 slot 保持不动。
+## slot 持久化是连线端点采样（get_center）可靠的前提：
+## 新建的 slot 要等容器排版才有正确坐标，频繁销毁重建会让采样拿到旧值
+func ensure_slot_count(direction: String, count: int) -> void:
+	var arr: Array = _slots.get(direction, [])
+	while arr.size() < count:
+		add_slot(direction)
+	while arr.size() > count:
+		var slot = arr.pop_back()
+		if slot:
+			slot.queue_free()
 
 
 ## 指定方向当前的 slot 数量

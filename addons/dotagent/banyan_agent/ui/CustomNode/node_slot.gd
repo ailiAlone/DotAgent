@@ -14,7 +14,9 @@ enum Direction { LEFT, RIGHT, TOP, BOTTOM }
 
 var direction: Direction = Direction.LEFT
 
+
 ## 返回端口中心的全局坐标（用于连线计算）
+## slot 是持久控件（不再随 refresh 重建），坐标始终有效
 func get_center() -> Vector2:
 	return global_position + size * 0.5
 

@@ -32,6 +32,15 @@ const ACTION_NUDGE := "nudge"
 const ACTION_REDIRECT := "redirect"
 const ACTION_FINISH := "finish"
 const ACTION_FAILED := "failed"
+const ACTION_CHALLENGE := "challenge"  # 零执行就收工 — 挑战一次，要求继续干活或明确说明任务无需修改
+
+# 算"实际执行"的工具：改动项目或委派子节点干活。
+# 只读探索（perception/discovery）不算 — 防止"只分析不动手"被误判为完成
+const EXECUTION_TOOLS := [
+	"build_scene", "build_script", "update_script", "write_file",
+	"patch_scene", "replace_in_file", "configure_resource", "configure_project",
+]
+const DELEGATION_TOOLS := ["spawn_child", "route_to_child"]
 
 # ============ 状态 ============
 
@@ -88,6 +97,8 @@ var _failure_count: int = 0
 var _abort_requested: bool = false
 var _files_created: Array = []
 var _read_files: Array = []
+var _exec_actions_this_run: int = 0    # 本次运行中执行/委派类工具调用次数（只读探索不计）
+var _completion_challenged: bool = false  # 本次运行是否已挑战过"零执行收工"（每次运行最多挑战一次）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 
@@ -95,6 +106,7 @@ var _signals_connected: Dictionary = {}
 
 var _ctx_size_cache: int = -1      # -1 = 未计算
 var _ctx_msg_count: int = 0        # 缓存统计到的消息数
+var _persisted_ctx_size: int = 0   # 上次运行持久化的 ctx 大小 — messages 为空时展示用
 
 # ============ 执行轨迹 ============
 
@@ -144,6 +156,9 @@ func _set_node_state(s: NodeState) -> void:
 ## 上下文总大小（字符数）— 增量缓存：messages 只增不减，每次只统计新增部分
 ## messages 被整体替换时必须调用 _invalidate_ctx_cache()
 func get_ctx_size() -> int:
+	# messages 为空（重启后/未运行）→ 展示上次运行持久化的大小
+	if messages.is_empty() and _persisted_ctx_size > 0:
+		return _persisted_ctx_size
 	if _ctx_size_cache >= 0 and _ctx_msg_count == messages.size():
 		return _ctx_size_cache
 	if _ctx_size_cache < 0 or messages.size() < _ctx_msg_count:
@@ -176,6 +191,8 @@ func run(ticket: Dictionary = {}) -> void:
 	_round_budget = -1 if parent_id.is_empty() else ROUND_BUDGET_DEFAULT
 	_failure_count = 0
 	_files_created.clear()
+	_exec_actions_this_run = 0
+	_completion_challenged = false
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -242,6 +259,14 @@ func run(ticket: Dictionary = {}) -> void:
 
 		var action: String = _analyze_response(_nudged, _redirected, _total_tool_calls)
 
+		# 成果校验：零执行/零委派/零文件就收工，大概率是"只分析没干活"。
+		# 每次运行挑战一次 — 要求继续动手，或明确说明任务本就是纯分析
+		if action == ACTION_FINISH and not _completion_challenged \
+				and _exec_actions_this_run == 0 and _files_created.is_empty() \
+				and not _abort_requested:
+			_completion_challenged = true
+			action = ACTION_CHALLENGE
+
 		# 更新状态和统计
 		if action == ACTION_EXECUTE or action == ACTION_NUDGE:
 			_total_tool_calls += messages.back().get("tool_calls", []).size()
@@ -270,7 +295,11 @@ func run(ticket: Dictionary = {}) -> void:
 		await _delay(ROUND_DELAY)
 
 	# ── 收束阶段 ──
-	await _request_convergence_summary()
+	# 挑战后仍零执行 = 节点已确认这是纯分析/问答任务 — 保留它自己的最终答复，
+	# 不再套用架构分析模板（否则模板总结会掩盖"什么都没做"的事实）
+	var analysis_only: bool = _completion_challenged and _exec_actions_this_run == 0 and _files_created.is_empty()
+	if not analysis_only:
+		await _request_convergence_summary()
 
 	_release_slot()
 
@@ -371,6 +400,14 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 			})
 			return false
 
+		ACTION_CHALLENGE:
+			_log("Round %d: finish attempted with zero execution — challenging" % _round_count)
+			messages.append({
+				"role": "user",
+				"content": "Before finishing, check your work: this run made no actual changes (no execution tools used, no files created or modified, no children delegated). If the task requires real changes, keep working — build/create/modify with execution tools, or delegate with spawn_child/route_to_child. A plan or analysis is NOT completion. Only finish without changes if the task is purely a question or analysis request — in that case state explicitly that no changes were needed and deliver your final answer.",
+			})
+			return false
+
 		ACTION_FINISH:
 			_set_node_state(NodeState.COMPLETED)
 			return true
@@ -428,7 +465,10 @@ Be specific: include file paths, function names, signal names. Do NOT list every
 			if content != null and not str(content).is_empty():
 				domain_knowledge = str(content)
 				messages.append(final_msg)
-		_set_node_state(NodeState.COMPLETED)
+		# 收束总结不能把 FAILED 洗成 COMPLETED（如熔断后）；
+		# 预算耗尽等正常收束时状态不是 FAILED，不受影响
+		if node_state != NodeState.FAILED:
+			_set_node_state(NodeState.COMPLETED)
 
 
 ## 定时器辅助 — 安全处理 host_node 可能为 null 的情况
@@ -725,6 +765,9 @@ func _execute_tool_round(tool_calls: Array) -> void:
 		if BanyanToolExecutor.is_management_tool(tc_name):
 			tool_msg["_no_truncate"] = true
 		messages.append(tool_msg)
+
+		if tc_name in EXECUTION_TOOLS or tc_name in DELEGATION_TOOLS:
+			_exec_actions_this_run += 1
 
 		if tc_name in ["build_scene", "build_script", "update_script", "write_file"] and ok:
 			_track_files(result)
@@ -1055,6 +1098,9 @@ func to_dict() -> Dictionary:
 		"managed_nodes": managed_nodes.duplicate(),
 		"children_summaries": children_summaries.duplicate(true),
 		"history": history.duplicate(),
+		# messages 不持久化（见下），但最后一次运行的上下文大小要留下来，
+		# 否则重启编辑器后图上 CTX 全部归零
+		"ctx_size": get_ctx_size(),
 		# 不持久化原始 messages — 节点只带蒸馏后的总结（domain_knowledge），
 		# 原始对话是一次性流水，持久化会导致重激活时上下文爆炸
 		"file_summaries": _file_summaries.duplicate(),
@@ -1083,6 +1129,8 @@ static func from_dict(data: Dictionary) -> AgentNode:
 		for entry in h:
 			node.history.append(str(entry))
 	# 兼容旧格式：忽略已废弃的 "messages" 字段（原始对话不再回灌）
+	# 恢复上次运行保存的上下文大小 — messages 为空时供 get_ctx_size 展示
+	node._persisted_ctx_size = int(data.get("ctx_size", 0))
 	# 加载文件摘要
 	var fs = data.get("file_summaries", {})
 	if fs is Dictionary:

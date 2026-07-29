@@ -24,11 +24,8 @@ func refresh() -> void:
 
 
 func _setup_slots(connections: Array, graph: GraphEdit) -> void:
-	# 清空所有节点的所有 slot
-	for child in graph.get_children():
-		if child is GraphElement and child.has_method("_clear_slots"):
-			child._clear_slots()
-
+	# 第一遍：计算每条连线的方向和序号，统计每个节点每个方向需要的 slot 数
+	var need: Dictionary = {}  # GraphElement → { direction: count }
 	for conn in connections:
 		var from_node = graph.get_node_or_null(NodePath(str(conn["from"])))
 		var to_node = graph.get_node_or_null(NodePath(str(conn["to"])))
@@ -37,8 +34,10 @@ func _setup_slots(connections: Array, graph: GraphEdit) -> void:
 		if not from_node.has_method("add_slot") or not to_node.has_method("add_slot"):
 			continue
 
-		var from_center: Vector2 = from_node.global_position + from_node.size * 0.5
-		var to_center: Vector2 = to_node.global_position + to_node.size * 0.5
+		# 用 position_offset（图空间坐标，布局时同步赋值）计算方向，
+		# 避免初次加载时 global_position 尚未被 GraphEdit 应用导致方向为 0。
+		var from_center: Vector2 = from_node.position_offset + from_node.size * 0.5
+		var to_center: Vector2 = to_node.position_offset + to_node.size * 0.5
 		var dir: Vector2 = to_center - from_center
 		if dir.length() < 1.0:
 			continue
@@ -46,18 +45,31 @@ func _setup_slots(connections: Array, graph: GraphEdit) -> void:
 		var from_dir: String = from_node.best_slot_for(dir)
 		var to_dir: String = to_node.best_slot_for(-dir)
 
-		var from_slot = from_node.add_slot(from_dir)
-		var to_slot = to_node.add_slot(to_dir)
-		if from_slot:
-			from_slot.set_status("connected")
-		if to_slot:
-			to_slot.set_status("connected")
+		if not need.has(from_node):
+			need[from_node] = {}
+		if not need.has(to_node):
+			need[to_node] = {}
+		need[from_node][from_dir] = int(need[from_node].get(from_dir, 0)) + 1
+		need[to_node][to_dir] = int(need[to_node].get(to_dir, 0)) + 1
 
-		# 记住这条连线用的方向和索引
+		# 记住这条连线用的方向和序号（同边第几条）
 		conn["_from_dir"] = from_dir
 		conn["_to_dir"] = to_dir
-		conn["_from_idx"] = from_node.slot_count(from_dir) - 1
-		conn["_to_idx"] = to_node.slot_count(to_dir) - 1
+		conn["_from_idx"] = need[from_node][from_dir] - 1
+		conn["_to_idx"] = need[to_node][to_dir] - 1
+
+	# 第二遍：按需求差额调整 slot（持久 slot — 不整体重建，
+	# 否则新建 slot 要等容器排版才有正确坐标，连线端点采样会拿到旧值）
+	for child in graph.get_children():
+		if not (child is GraphElement) or not child.has_method("ensure_slot_count"):
+			continue
+		var node_need: Dictionary = need.get(child, {})
+		for d in ["left", "right", "top", "bottom"]:
+			child.ensure_slot_count(d, int(node_need.get(d, 0)))
+			for i in child.slot_count(d):
+				var s = child.get_slot(d, i)
+				if s:
+					s.set_status("connected")
 
 
 func _draw() -> void:
@@ -85,13 +97,12 @@ func _draw() -> void:
 		if from_dir.is_empty() or to_dir.is_empty():
 			continue
 
+		# 端点采样持久 slot 的真实中心（精确落在槽点上）；
+		# slot 不存在时（异常路径）退化解析计算，保证线不断
 		var from_slot = from_node.get_slot(from_dir, from_idx)
 		var to_slot = to_node.get_slot(to_dir, to_idx)
-		if from_slot == null or to_slot == null:
-			continue
-
-		var s_start: Vector2 = from_slot.get_center() - overlay_origin
-		var s_end: Vector2 = to_slot.get_center() - overlay_origin
+		var s_start: Vector2 = (from_slot.get_center() if from_slot else _side_point(from_node, from_dir, from_idx)) - overlay_origin
+		var s_end: Vector2 = (to_slot.get_center() if to_slot else _side_point(to_node, to_dir, to_idx)) - overlay_origin
 
 		# 贝塞尔控制点
 		var exit_dir: Vector2 = _dir_vector(from_dir)
@@ -123,6 +134,23 @@ func _draw() -> void:
 		var right: Vector2 = s_end - tangent.rotated(-arrow_angle) * arrow_len
 		draw_line(left, s_end, arrow_color, 2.5 * zoom, true)
 		draw_line(s_end, right, arrow_color, 2.5 * zoom, true)
+
+
+## 兜底：slot 缺失时按边均布估算连接点（仅异常路径使用）
+## slot 10px、容器默认 separation=4 → 间距 14px、整体居中
+func _side_point(node, direction: String, idx: int) -> Vector2:
+	const SLOT_PITCH: float = 14.0  # 10px slot + 默认 separation 4
+	var count: int = maxi(node.slot_count(direction), 1)
+	var shift: float = (float(idx) - float(count - 1) * 0.5) * SLOT_PITCH
+	var zoom: float = _panel._graph.zoom
+	var sz: Vector2 = node.size * zoom
+	var p: Vector2 = node.global_position
+	match direction:
+		"left": return p + Vector2(0, sz.y * 0.5 + shift * zoom)
+		"right": return p + Vector2(sz.x, sz.y * 0.5 + shift * zoom)
+		"top": return p + Vector2(sz.x * 0.5 + shift * zoom, 0)
+		"bottom": return p + Vector2(sz.x * 0.5 + shift * zoom, sz.y)
+	return p + sz * 0.5
 
 
 static func _cubic_bezier(p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, t: float) -> Vector2:

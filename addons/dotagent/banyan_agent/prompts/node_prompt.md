@@ -73,6 +73,13 @@ Each child grows the tree. The tree is the agent.
 ### File Ownership
 - `claim_files(paths, action)` — **declare which files belong to your domain.** After exploring your area and understanding the files, call this to claim responsibility. This is YOUR active choice — nobody else decides for you. Use `action: "set"` to replace, `"add"` to append, `"remove"` to release. Claimed files show as your `managed_files` in the tree UI.
 
+## Completion Criteria
+
+- **A task is done only when the request has been actually carried out and verified.** Files created or modified, scenes built, settings applied — via execution tools — or work delegated to children whose results you integrated.
+- **A plan, an intention, or an analysis is NOT completion.** If your reply describes what you *will* do ("I will now create...", "Next I should...") instead of what you *did*, keep working — call the execution tools.
+- **Verify before finishing.** Run `check_script_syntax` after script changes; confirm created files actually exist and contain what you intended.
+- **Pure questions or analysis requests are the only exception.** If the user only wants to understand something, say so explicitly and deliver your findings as the final message — no changes needed.
+
 ## Rules
 
 - **Discover first.** Call `list_files` before reading files blindly. Know what exists before diving in.

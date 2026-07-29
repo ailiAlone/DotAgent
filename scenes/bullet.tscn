@@ -1,4 +1,4 @@
-[gd_scene load_steps=3 format=3 uid="uid://dw7xhhpj1uwad"]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/bullet.gd" id="1_bl"]
 
@@ -10,3 +10,6 @@ script = ExtResource("1_bl")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("RectangleShape2D_b1")
+
+[node name="Trail" type="Line2D" parent="."]
+z_index = -1

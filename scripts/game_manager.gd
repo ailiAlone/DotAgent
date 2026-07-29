@@ -4,14 +4,13 @@ signal score_changed(new_score)
 signal high_score_changed(new_high_score)
 signal lives_changed(new_lives)
 
-const SAVE_PATH = "user://high_score.save"
+const SAVE_PATH = "user://leaderboard.save"
+const MAX_ENTRIES = 10
 
 var score: int = 0:
 	set(value):
 		score = max(0, value)
 		score_changed.emit(score)
-		if score > high_score:
-			high_score = score
 
 var high_score: int = 0:
 	set(value):
@@ -19,7 +18,6 @@ var high_score: int = 0:
 			return
 		high_score = value
 		high_score_changed.emit(high_score)
-		save_high_score()
 
 var lives: int = 3:
 	set(value):
@@ -31,9 +29,13 @@ var combo_timer: float = 0.0
 var score_multiplier: float = 1.0
 var score_multiplier_timer: float = 0.0
 
+# Leaderboard entries: [{"score": int, "date": String, "wave": int}]
+var leaderboard: Array = []
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	load_high_score()
+	load_leaderboard()
+	_update_high_score_from_leaderboard()
 
 func reset_run():
 	score = 0
@@ -59,20 +61,81 @@ func tick_combo(delta: float):
 		if score_multiplier_timer <= 0:
 			score_multiplier = 1.0
 
-func load_high_score():
+# --- Leaderboard API ---
+
+func record_score(value: int, wave: int = 1) -> bool:
+	if value <= 0:
+		return false
+	var entry = {
+		"score": value,
+		"date": _format_date(),
+		"wave": wave
+	}
+	leaderboard.append(entry)
+	leaderboard.sort_custom(func(a, b): return a["score"] > b["score"])
+	if leaderboard.size() > MAX_ENTRIES:
+		leaderboard.resize(MAX_ENTRIES)
+	_update_high_score_from_leaderboard()
+	save_leaderboard()
+	return entry in leaderboard
+
+func get_leaderboard() -> Array:
+	return leaderboard.duplicate()
+
+func get_top_score() -> int:
+	return high_score
+
+func is_top_score(value: int) -> bool:
+	if value <= 0:
+		return false
+	if leaderboard.is_empty():
+		return true
+	return value > leaderboard[0]["score"]
+
+func is_on_leaderboard(value: int) -> bool:
+	if value <= 0:
+		return false
+	if leaderboard.size() < MAX_ENTRIES:
+		return true
+	return value > leaderboard[-1]["score"]
+
+func _update_high_score_from_leaderboard():
+	if leaderboard.is_empty():
+		return
+	high_score = leaderboard[0]["score"]
+
+func _format_date() -> String:
+	var dt = Time.get_datetime_dict_from_system()
+	return "%04d-%02d-%02d" % [dt.year, dt.month, dt.day]
+
+# --- Persistence ---
+
+func load_leaderboard():
 	if not FileAccess.file_exists(SAVE_PATH):
 		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
-		push_warning("GameManager: failed to open high score save for reading: ", FileAccess.get_open_error())
+		push_warning("GameManager: failed to open leaderboard save for reading: ", FileAccess.get_open_error())
 		return
-	high_score = f.get_32()
+	var json := f.get_as_text()
 	f.close()
+	if json.is_empty():
+		return
+	var parsed = JSON.parse_string(json)
+	if parsed is Array:
+		leaderboard = parsed
+		# Ensure valid entries
+		leaderboard = leaderboard.filter(func(e): return e is Dictionary and e.has("score") and e["score"] is int)
+		leaderboard.sort_custom(func(a, b): return a["score"] > b["score"])
+		if leaderboard.size() > MAX_ENTRIES:
+			leaderboard.resize(MAX_ENTRIES)
+	else:
+		push_warning("GameManager: leaderboard save format invalid")
 
-func save_high_score():
+func save_leaderboard():
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
-		push_warning("GameManager: failed to open high score save for writing: ", FileAccess.get_open_error())
+		push_warning("GameManager: failed to open leaderboard save for writing: ", FileAccess.get_open_error())
 		return
-	f.store_32(high_score)
+	f.store_string(JSON.stringify(leaderboard))
 	f.close()

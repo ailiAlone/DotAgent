@@ -39,6 +39,10 @@ var _log_entries: Array = []
 var _prune_suggestions: Array = []
 var _overlay: Control = null
 var _connections: Array = []
+
+# 视图几何追踪 — 分两级的几何签名（详见 _process）
+var _last_geo_sig: String = ""   # 视图层：scroll + zoom + 节点尺寸
+var _last_pos_sig: String = ""   # 位置层：节点 position_offset（变化需重选槽位）
 var _connections_key: String = ""  # 连线结构的规范化签名，用于检测结构变化
 var _did_initial_center: bool = false  # 首次布局后不再抢夺用户的平移/缩放
 
@@ -54,6 +58,34 @@ func _ready() -> void:
 	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_graph.add_child(_overlay)
+
+
+## 任何图几何变化都更新连线层，分两级：
+## - 节点位置变化（拖动/重新布局）→ refresh() 重选槽位方向 + 重绘，
+##   保证连线总是从相对位置最合适的一侧进出（上下左右随位置关系自适应）
+## - 仅视图滚动/缩放/节点尺寸变化 → queue_redraw() 按当前槽位重绘即可
+func _process(_delta: float) -> void:
+	if _overlay == null or _graph == null:
+		return
+	var view_sig: String = str(_graph.scroll_offset) + "|" + str(_graph.zoom)
+	var pos_sig: String = ""
+	for child in _graph.get_children():
+		if child is GraphElement:
+			pos_sig += "|" + str(child.position_offset)
+			view_sig += "|" + str(child.size)
+			# slot 中心也入签名 — 新增 slot 排版落定后坐标变化会触发重绘，不会定格在旧值
+			for d in ["left", "right", "top", "bottom"]:
+				for i in child.slot_count(d):
+					var s = child.get_slot(d, i)
+					if s:
+						view_sig += str(s.global_position)
+	if pos_sig != _last_pos_sig:
+		_last_pos_sig = pos_sig
+		_last_geo_sig = view_sig
+		_overlay.refresh()
+	elif view_sig != _last_geo_sig:
+		_last_geo_sig = view_sig
+		_overlay.queue_redraw()
 
 
 # ============ Agent Graph 可视化 ============
@@ -209,7 +241,8 @@ func _layout_and_render(root_id: String) -> void:
 		_relayout(root_id)
 
 	if _overlay:
-		_overlay.refresh()
+		# 延迟到下一帧：等 GraphEdit 应用 position_offset、节点尺寸就绪后再建 slot 和绘制
+		_overlay.refresh.call_deferred()
 
 
 ## 就地更新已有节点的显示数据（不重建实例，保持位置不变）

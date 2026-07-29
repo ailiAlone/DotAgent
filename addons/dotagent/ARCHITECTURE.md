@@ -320,3 +320,5 @@ textures/      ← 所有图片混在一起
 *文档版本: 4.0*
 *创建日期: 2026-07-25*
 *最后更新: 2026-07-26 — AgentTree 持久化 + 底部面板重写 + 死代码清理*
+
+> **相关文档**: [banyan_agent/AGENT_WORKFLOW.md](banyan_agent/AGENT_WORKFLOW.md) — 外部 AI agent 如何无头驱动 Banyan、读取执行轨迹、评估输出并迭代修复插件的工作手册（含真实诊断案例）。
