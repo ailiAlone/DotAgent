@@ -19,9 +19,14 @@ var _trail_length: int = 10
 var _trail_timer: float = 0.0
 var _trail_step: float = 0.012
 
+var _dying: bool = false
+var _death_fade: float = 0.15
+var _death_timer: float = 0.0
+
 func _ready():
 	add_to_group("bullets")
 	if trail:
+		trail.top_level = true
 		_setup_trail_visuals()
 	if glow:
 		_setup_glow_visuals()
@@ -42,6 +47,7 @@ func _setup_glow_visuals() -> void:
 	glow.range = 48.0
 	glow.texture = _create_glow_texture()
 	glow.z_index = 1
+	glow.enabled = true
 
 func _create_glow_material() -> CanvasItemMaterial:
 	var mat = CanvasItemMaterial.new()
@@ -81,23 +87,46 @@ func _create_trail_width_curve() -> Curve:
 	return c
 
 func _process(delta):
+	if _dying:
+		_fade_out(delta)
+		return
+
 	position += velocity * delta
 	lifetime -= delta
 	_update_trail(delta)
+
 	if lifetime <= 0 or not _in_bounds():
-		queue_free()
+		_start_death()
 
 func _update_trail(delta: float) -> void:
 	if not trail:
 		return
 	_trail_timer += delta
+	var head := to_global(Vector2.ZERO)
 	while _trail_timer >= _trail_step:
 		_trail_timer -= _trail_step
-		trail.add_point(Vector2.ZERO)
+		trail.add_point(head)
 		while trail.get_point_count() > _trail_length:
 			trail.remove_point(0)
 	if trail.get_point_count() > 0:
-		trail.set_point_position(trail.get_point_count() - 1, Vector2.ZERO)
+		trail.set_point_position(trail.get_point_count() - 1, head)
+
+func _start_death() -> void:
+	set_process(false)
+	_dying = true
+	_death_timer = 0.0
+	if glow:
+		glow.enabled = false
+	_fade_out(0.0)
+
+func _fade_out(delta: float) -> void:
+	_death_timer += delta
+	var t := clampf(_death_timer / _death_fade, 0.0, 1.0)
+	modulate.a = 1.0 - t
+	if trail:
+		trail.modulate.a = 1.0 - t
+	if _death_timer >= _death_fade:
+		queue_free()
 
 func _in_bounds() -> bool:
 	var vp = get_viewport_rect()
