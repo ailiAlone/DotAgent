@@ -6,6 +6,9 @@ static func _gm():
 static func _am():
 	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
 
+static func _sm():
+	return Engine.get_main_loop().root.get_node_or_null("SaveManager")
+
 @onready var screen_flash: CanvasLayer = $ScreenFlash
 @onready var player: Area2D = $Player
 @onready var bullets: Node2D = $Bullets
@@ -44,6 +47,50 @@ func _hit_spark(pos: Vector2, color: Color, intensity: float = 1.0):
 
 func _hitstop(duration: float = 0.05):
 	hitstop_timer = max(hitstop_timer, duration)
+
+func _save_progress():
+	var sm = _sm()
+	if sm and sm.has_method("save_game"):
+		sm.save_game()
+
+func apply_save_data(data: Dictionary):
+	# 从 PauseMenuUI 的加载按钮恢复游戏进度
+	var sm = _sm()
+	if sm and sm.has_method("save_game"):
+		data = sm.load_save() if data.is_empty() else data
+	if not data.has("score") or not data.has("high_score") or not data.has("lives") or not data.has("wave"):
+		push_warning("game.apply_save_data: invalid save data, aborting")
+		return
+	_gm().score = data["score"]
+	_gm().high_score = data["high_score"]
+	_gm().lives = data["lives"]
+	if paused:
+		_toggle_pause()
+	if game_over:
+		game_over = false
+		# 清理可能存在的 game_over 界面
+		var go = get_tree().root.get_node_or_null("GameOver")
+		if go:
+			go.queue_free()
+	# 清屏，避免残留敌人和子弹
+	for e in enemies.get_children():
+		e.queue_free()
+	for b in bullets.get_children():
+		b.queue_free()
+	for a in asteroids.get_children():
+		a.queue_free()
+	for p in powerups.get_children():
+		p.queue_free()
+	player.position = Vector2(screen_size.x / 2, screen_size.y - 100)
+	player.reset()
+	_start_wave(data["wave"])
+	_announce_wave(data["wave"])
+	# 恢复计时器（若之前因暂停/结束而停止）
+	spawn_timer.start()
+	powerup_timer.start()
+	wave_timer.start()
+	asteroid_timer.start()
+	_am().play_music("game")
 
 func _ready():
 	# 输入动作已在 main.gd 中统一兜底注册；游戏场景内无需重复注册
@@ -256,6 +303,8 @@ func _on_boss_killed(value, pos):
 	# 手动推进下一波
 	wave += 1
 	_start_wave(wave)
+	_announce_wave(wave)
+	_save_progress()
 
 func _on_boss_damaged(_hp):
 	_shake(0.04, 2)
@@ -367,6 +416,7 @@ func _on_wave_timer_timeout():
 	var next_wave = wave + 1
 	_start_wave(next_wave)
 	_announce_wave(next_wave)
+	_save_progress()
 
 func _on_player_shoot(bullet_path, pos, dir):
 	var b = load(bullet_path).instantiate()
