@@ -220,7 +220,11 @@ func _tool_build_script(args: Dictionary) -> Dictionary:
 			if not otype.is_empty():
 				decl += ": %s" % otype
 			if not opath.is_empty():
-				decl += " = $%s" % opath
+				# 防止 $$ 双重前缀：LLM 可能传入 "$Center/Title"，代码会再加 $
+				var clean_path: String = opath
+				if clean_path.begins_with("$"):
+					clean_path = clean_path.substr(1)
+				decl += " = $%s" % clean_path
 			lines.append(decl)
 		if not onready_defs.is_empty():
 			lines.append("")
@@ -268,7 +272,13 @@ func _tool_build_script(args: Dictionary) -> Dictionary:
 		gs.source_code = content
 		var err := gs.reload()
 		if err != OK:
-			return _err("Syntax validation failed:\n" + content.substr(0, 500))
+			# 显示最后 30 行而非截断前 500 字符，让 LLM 能看到实际出错位置
+			var all_lines: PackedStringArray = content.split("\n")
+			var start_line: int = maxi(0, all_lines.size() - 30)
+			var tail: String = ""
+			for i in range(start_line, all_lines.size()):
+				tail += "%d: %s\n" % [i + 1, all_lines[i]]
+			return _err("Syntax validation failed (last %d lines):\n%s" % [all_lines.size() - start_line, tail])
 
 	# Save
 	_ensure_dir(path)

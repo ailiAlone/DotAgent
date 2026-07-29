@@ -41,6 +41,14 @@ const EXECUTION_TOOLS := [
 	"patch_scene", "replace_in_file", "configure_resource", "configure_project",
 ]
 const DELEGATION_TOOLS := ["spawn_child", "route_to_child"]
+const PERCEPTION_TOOLS := [
+	"list_files", "list_scenes", "list_resources",
+	"read_script", "read_multiple_files", "read_file_tail",
+	"inspect_scene_structured", "extract_script_interface",
+	"get_scene_dependencies", "inspect_resource_interface",
+	"analyze_signal_flow", "get_project_architecture",
+	"check_script_syntax",
+]
 
 # ============ 状态 ============
 
@@ -352,9 +360,18 @@ func _analyze_response(nudged: bool, redirected: bool, total_tool_calls: int) ->
 
 	if has_tool_calls:
 		# 拦截：只调工具不解释推理 = 盲动，先 nudge 要求解释
+		# 但感知/探索类工具（只读）豁免 — 不需要解释推理
 		if not has_reasoning and not nudged:
-			return ACTION_NUDGE
-		# 有 reasoning + tool_calls，或已被 nudge 过 → 正常执行
+			var all_perception: bool = true
+			for tc in last_msg.get("tool_calls", []):
+				var fn: Dictionary = tc.get("function", {})
+				var tname: String = fn.get("name", "")
+				if tname not in PERCEPTION_TOOLS:
+					all_perception = false
+					break
+			if not all_perception:
+				return ACTION_NUDGE
+		# 有 reasoning、已被 nudge 过、或全是感知工具 → 正常执行
 		return ACTION_EXECUTE
 
 	# 无 tool_calls
