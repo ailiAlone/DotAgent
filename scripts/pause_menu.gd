@@ -83,7 +83,16 @@ func _on_load_game():
 	if game == null or not game.has_method("apply_save_data"):
 		push_warning("pause_menu._on_load_game: Game instance not available")
 		return
+
 	var data = sm.load_save()
+	if not _is_valid_save_data(data):
+		push_warning("pause_menu._on_load_game: loaded save data is invalid")
+		var original_text = load_btn.text
+		load_btn.text = "NO SAVE"
+		var t = create_tween()
+		t.tween_callback(func(): load_btn.text = original_text).set_delay(1.0)
+		return
+
 	game.apply_save_data(data)
 
 func _on_restart():
@@ -134,3 +143,13 @@ func _get_scene_holder() -> Node:
 	while n != null and n.name != "Main":
 		n = n.get_parent()
 	return n if n != null else get_tree().root
+
+# 校验存档数据是否包含游戏所需的全部关键字段
+func _is_valid_save_data(data) -> bool:
+	if data == null or not data is Dictionary:
+		return false
+	var required = ["score", "high_score", "wave", "lives"]
+	for key in required:
+		if not data.has(key):
+			return false
+	return true

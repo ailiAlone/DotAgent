@@ -127,10 +127,33 @@
 					"id": "SettingsUI",
 					"status": "COMPLETED",
 					"summary": ""
+				},
+				{
+					"files": [
+						"res://scripts/save_manager.gd"
+					],
+					"id": "SaveManager",
+					"status": "COMPLETED",
+					"summary": "已完成 SaveManager 的实现与注册。\n\n### 改动内容\n\n1. **`res://scripts/save_manager.gd`**\n   - `SAVE_PATH` 常量设为 `\"user://save.json\"`。\n   - `save_game(data: Dictionary) -> bool`：写入 JSON，包含 `score`、`high_score`、`wave`、"
+				},
+				{
+					"files": [
+						"res://scripts/pause_menu.gd",
+						"res://scenes/pause_menu.tscn"
+					],
+					"id": "PauseMenuUI",
+					"status": "COMPLETED",
+					"summary": "已完成。仅修改了 `res://scripts/pause_menu.gd`，未改动 `res://scenes/pause_menu.tscn`（场景中 `Center/SaveGame` 与 `Center/LoadGame` 按钮路径已正确存在，且脚本中 `@onready` 引用和 `_ready` 中的 `pressed` 连接都已正确）。\n\n## 改动内容\n\n### 1. `_on_s"
+				},
+				{
+					"files": [],
+					"id": "GameLoop",
+					"status": "COMPLETED",
+					"summary": ""
 				}
 			],
-			"ctx_size": 101301,
-			"domain_knowledge": "已完成。任务由对象池领地节点 `ObjectPool` 执行，我仅做了验证。\n\n## 改动内容\n\n仅修改了请求的两个文件：\n\n### 1. `res://scenes/bullet.tscn`\n- 在 `bullet` 根节点下新增了 `PointLight2D` 子节点，命名为 `Glow`：\n  ```ini\n  [node name=\"Glow\" type=\"PointLight2D\" parent=\".\"]\n  ```\n\n### 2. `res://scripts/bullet.gd`\n- 在 `_ready()` 前添加了说明性注释：\n  ```gdscript\n  # Glow + trail visuals are set up at runtime in _ready().\n  ```\n\n## 为什么这样修改即可生效\n\n`bullet.gd` 本身已经包含完整的发光拖尾逻辑：\n- `_setup_trail_visuals()` 初始化 `Line2D` 拖尾。\n- `_setup_glow_visuals()` 初始化 `PointLight2D` 光晕。\n- `_ready()` 会在运行时自动查找 `Trail` 和 `Glow` 节点并启用它们。\n\n之前场景中已经有 `Trail` 节点，但缺少 `Glow` 节点，所以光晕未生效。补上 `Glow` 节点后，拖尾和发光效果都会按脚本逻辑自动启用。\n\n## 验证\n\n- `res://scripts/bullet.gd` 语法检查通过。\n- 仅涉及 `res://scripts/bullet.gd` 和 `res://scenes/bullet.tscn`，未改动其他文件。",
+			"ctx_size": 112199,
+			"domain_knowledge": "已完成存档系统的实现与验证。以下是我协调的工作总结：\n\n## 实现总结\n\n### 1. SaveManager 自动加载单例\n- **新文件**：`res://scripts/save_manager.gd`\n- **功能**：\n  - `SAVE_PATH = \"user://save.json\"`\n  - `save_game(data)`：保存 `score` / `high_score` / `wave` / `lives` / `version` / `timestamp`\n  - `load_save()`：读取并校验后返回字典，失败返回空字典\n  - `get_save_summary()`：静态方法，返回 `\"Wave X - Score Y\"` 或 `\"No save\"`\n- **已注册 autoload**：`project.godot` 中已加入 `SaveManager=\"*res://scripts/save_manager.gd\"`\n\n### 2. 暂停菜单保存 / 加载按钮\n- **文件**：`res://scripts/pause_menu.gd`\n- `Center/SaveGame` 和 `Center/LoadGame` 按钮已存在，脚本已连接：\n  - SAVE：收集当前进度，调用 `SaveManager.save_game()`，成功后按钮显示 `\"SAVED\"`\n  - LOAD：调用 `SaveManager.load_save()`，校验必需字段，无效时显示 `\"NO SAVE\"`，有效时调用 `game.apply_save_data(data)`\n\n### 3. 每波结束自动保存\n- **文件**：`res://scripts/game.gd`\n- `_on_wave_timer_timeout()`（普通波次结束）和 `_on_boss_killed()`（Boss 击杀后）均调用 `_save_progress()`\n- `_save_progress()` 使用 `GameManager` 和 `SaveManager` 保存当前进度\n\n### 验证\n- `save_manager.gd`：语法 OK\n- `pause_menu.gd`：语法 OK\n- `game.gd`：语法 OK\n- `project.godot`：SaveManager autoload 已确认存在\n\n我已将相关文件纳入我的管理范围，并保存了接口知识到知识库。",
 			"file_summaries": {
 
 			},
@@ -141,7 +164,8 @@
 				"2026-07-29: R3, 0 files — This task was purely a read-and-summarize request. No changes were needed: no fi",
 				"2026-07-29: R3, 0 files — This task was a **pure read-and-summarize request** with an explicit instruction",
 				"2026-07-29: R8, 0 files — ## Project Overview\n2D Godot arcade/shooter project using node-based scene compo",
-				"2026-07-29: R6, 0 files — 已完成。任务由对象池领地节点 `ObjectPool` 执行，我仅做了验证。\n\n## 改动内容\n\n仅修改了请求的两个文件：\n\n### 1. `res://sce"
+				"2026-07-29: R6, 0 files — 已完成。任务由对象池领地节点 `ObjectPool` 执行，我仅做了验证。\n\n## 改动内容\n\n仅修改了请求的两个文件：\n\n### 1. `res://sce",
+				"2026-07-29: R9, 0 files — 已完成存档系统的实现与验证。以下是我协调的工作总结：\n\n## 实现总结\n\n### 1. SaveManager 自动加载单例\n- **新文件**：`res://"
 			],
 			"managed_files": [
 				"res://project.godot",
@@ -185,7 +209,8 @@
 				"res://scripts/pool.gd",
 				"res://scripts/game_manager.gd",
 				"res://scripts/audio_manager.gd",
-				"res://scripts/settings_manager.gd"
+				"res://scripts/settings_manager.gd",
+				"res://scripts/save_manager.gd"
 			],
 			"managed_nodes": [],
 			"node_id": "Root",
@@ -210,6 +235,6 @@
 		}
 	},
 	"root_id": "Root",
-	"saved_at": "2026-07-29T12:54:24",
+	"saved_at": "2026-07-29T13:38:04",
 	"version": "1.0"
 }

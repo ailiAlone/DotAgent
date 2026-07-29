@@ -146,6 +146,19 @@
 				"bullet_pooled.gd"
 			],
 			"timestamp": "2026-07-28T17:42:33"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "Save system is implemented with SaveManager autoload (res://scripts/save_manager.gd) registered in project.godot. It persists score, high_score, wave, lives plus version/timestamp to user://save.json. Pause menu has Center/SaveGame and Center/LoadGame buttons wired to save and load via SaveManager. Game wave end points _on_wave_timer_timeout and _on_boss_killed both call _save_progress() for auto-save. Pause menu load validates required fields before calling game.apply_save_data. SaveManager has no class_name because it is an autoload.",
+			"tags": [
+				"save",
+				"autoload",
+				"pause_menu",
+				"game_loop",
+				"SaveManager"
+			],
+			"timestamp": "2026-07-29T13:37:56"
 		}
 	]
 }
