@@ -393,24 +393,18 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 
 	match action:
 		ACTION_NUDGE:
-			_log("Round %d: tool calls without reasoning — nudge" % _round_count)
-			# 协议合规：为每个未执行的 tool_call 追加占位结果
-			for tc in last_msg.get("tool_calls", []):
-				messages.append({
-					"role": "tool",
-					"tool_call_id": tc.get("id", ""),
-					"content": "Tool call was not executed — the assistant should explain its reasoning before calling tools.",
-				})
+			_log("Round %d: tool calls without reasoning — soft nudge (executing + reminder)" % _round_count)
+			# 软 nudge：正常执行工具，但在结果后附加提醒消息
+			_set_node_state(NodeState.TOOL_EXEC)
+			await _execute_tool_round(last_msg.tool_calls)
+			# 附加 nudge 提醒（不阻塞，下一轮 LLM 会看到）
 			messages.append({
 				"role": "system",
-				"content": "You called tools but did not explain your reasoning. Before calling any tool, briefly explain: (1) what you need to learn or accomplish, (2) why this tool is the right next step, (3) what you expect to find. Then proceed with your plan.",
+				"content": "Reminder: Before calling tools, briefly explain your reasoning — what you need to learn, why this tool is the right step, and what you expect to find. This helps maintain a clear chain of thought.",
 			})
 			return false
 
 		ACTION_EXECUTE:
-			if nudged and _last_reasoning.is_empty():
-				# 仅在确实没有推理时报警（有 reasoning_content 时不算盲动）
-				_log("Round %d: still no reasoning after nudge — executing anyway" % _round_count)
 			_set_node_state(NodeState.TOOL_EXEC)
 			await _execute_tool_round(last_msg.tool_calls)
 			return false

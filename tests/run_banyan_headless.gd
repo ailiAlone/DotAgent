@@ -12,7 +12,7 @@ const BanyanToolLoader = preload("res://addons/dotagent/banyan_agent/tools/tool_
 const BanyanRunLogScript = preload("res://addons/dotagent/log/banyan_run_log.gd")
 
 const DEFAULT_TASK := "读取 res://tests/README.md，总结这个测试目录的用途。不要修改任何文件。"
-const WATCHDOG_SEC := 480.0
+const WATCHDOG_SEC := 600.0
 
 var _logger = null
 var _host: Node = null
