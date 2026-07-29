@@ -12,7 +12,8 @@ var lifetime: float = 3.0
 var is_enemy: bool = false
 var color: Color = Color(1.0, 0.95, 0.4)
 
-@onready var trail: Line2D = $Trail
+@onready var trail: Line2D = get_node_or_null("Trail") as Line2D
+@onready var glow: PointLight2D = get_node_or_null("Glow") as PointLight2D
 
 var _trail_length: int = 10
 var _trail_timer: float = 0.0
@@ -22,6 +23,8 @@ func _ready():
 	add_to_group("bullets")
 	if trail:
 		_setup_trail_visuals()
+	if glow:
+		_setup_glow_visuals()
 
 func _setup_trail_visuals() -> void:
 	trail.default_color = Color(color.r, color.g, color.b, 0.8)
@@ -33,10 +36,30 @@ func _setup_trail_visuals() -> void:
 	trail.antialiased = true
 	trail.material = _create_glow_material()
 
+func _setup_glow_visuals() -> void:
+	glow.color = color
+	glow.energy = 2.0
+	glow.range = 48.0
+	glow.texture = _create_glow_texture()
+	glow.z_index = 1
+
 func _create_glow_material() -> CanvasItemMaterial:
 	var mat = CanvasItemMaterial.new()
 	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	return mat
+
+func _create_glow_texture() -> GradientTexture2D:
+	var gt = GradientTexture2D.new()
+	gt.width = 64
+	gt.height = 64
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.0, 0.5)
+	var grad = Gradient.new()
+	grad.colors = [color, Color(color.r, color.g, color.b, 0.0)]
+	grad.offsets = [0.0, 1.0]
+	gt.gradient = grad
+	return gt
 
 func _create_trail_gradient() -> Gradient:
 	var g = Gradient.new()
@@ -86,10 +109,10 @@ func _draw():
 	if is_enemy:
 		tip = Vector2(0, 16)
 		tail = Vector2(0, -16)
-	var glow = Color(color.r, color.g, color.b, 0.35)
-	glow.r = min(glow.r * 1.6, 1.0)
-	glow.g = min(glow.g * 1.6, 1.0)
-	glow.b = min(glow.b * 1.6, 1.0)
-	draw_line(tip, tail, glow, 14)
+	var glow_color = Color(color.r, color.g, color.b, 0.35)
+	glow_color.r = min(glow_color.r * 1.6, 1.0)
+	glow_color.g = min(glow_color.g * 1.6, 1.0)
+	glow_color.b = min(glow_color.b * 1.6, 1.0)
+	draw_line(tip, tail, glow_color, 14)
 	draw_line(tip, tail, color, 3)
 	draw_circle(Vector2(0, 0), 5, color)
