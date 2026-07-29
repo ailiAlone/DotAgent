@@ -40,7 +40,11 @@ func build() -> Array:
 				result.append({"role": "user", "content": _truncate(msg.get("content", ""), MAX_USER_MSG_LEN)})
 			"assistant":
 				# 完整保留 — Worker 需要看到自己的思考链和 tool_calls
-				result.append(msg)
+				# 但跳过空 assistant 消息（content 为空且无 tool_calls），Kimi API 会拒绝
+				var has_content: bool = msg.get("content", "") != "" and msg.get("content", null) != null
+				var has_tools: bool = msg.has("tool_calls") and not msg.get("tool_calls", []).is_empty()
+				if has_content or has_tools:
+					result.append(msg)
 			"tool":
 				var tc: Dictionary = msg.duplicate(true)
 				# 管理工具结果（wait_for_children 报告等）是蒸馏信息，不截断
