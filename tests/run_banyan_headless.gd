@@ -12,7 +12,7 @@ const BanyanToolLoader = preload("res://addons/dotagent/banyan_agent/tools/tool_
 const BanyanRunLogScript = preload("res://addons/dotagent/log/banyan_run_log.gd")
 
 const DEFAULT_TASK := "读取 res://tests/README.md，总结这个测试目录的用途。不要修改任何文件。"
-const WATCHDOG_SEC := 900.0
+const IDLE_TIMEOUT_SEC := 90.0  # 空闲超时：90秒内无任何活动才 abort
 
 var _logger = null
 var _host: Node = null
@@ -24,6 +24,7 @@ var _done := false
 var _failed := false
 var _fail_msg := ""
 var _start_msec := 0
+var _last_activity_msec := 0  # 最近一次活动时间（空闲超时用）
 
 # ============ 实时监控 ============
 
@@ -36,17 +37,23 @@ func _initialize() -> void:
 
 
 func _process(_delta: float) -> bool:
-	# 看门狗：超时强制 abort 收束，仍能拿到 trace
-	if not _done and _start_msec > 0 and float(Time.get_ticks_msec() - _start_msec) / 1000.0 > WATCHDOG_SEC:
-		print("\n[WATCHDOG] %.0fs 超时，强制 abort" % WATCHDOG_SEC)
+	# 空闲看门狗：IDLE_TIMEOUT_SEC 内无任何活动才 abort
+	if not _done and _last_activity_msec > 0 and float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0 > IDLE_TIMEOUT_SEC:
+		var idle_sec: float = float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0
+		print("\n[WATCHDOG] 空闲 %.0fs 无活动，强制 abort" % idle_sec)
 		if _root_node:
 			_root_node.abort()
 		_finish_run()
 	return _done
 
 
+func _touch_activity() -> void:
+	_last_activity_msec = Time.get_ticks_msec()
+
+
 func _main() -> void:
 	_start_msec = Time.get_ticks_msec()
+	_last_activity_msec = _start_msec
 	_logger = SessionLog.instance()
 
 	# 1. 基础设施（复刻 plugin._init_shared + _init_banyan）
@@ -123,6 +130,7 @@ func _main() -> void:
 # ============ 实时监控实现 ============
 
 func _on_tree_state_changed(origin_id: String) -> void:
+	_touch_activity()
 	# 冒泡上来的来源 id — 先打印状态变化，再遍历树给新节点挂监控
 	var node: AgentNode = _find_node(origin_id)
 	if node:
@@ -146,12 +154,15 @@ func _attach_monitor(node: AgentNode) -> void:
 	_monitored[node] = true
 	var nid: String = node.node_id
 	node.progress_tool_started.connect(func(tool_name: String):
+		_touch_activity()
 		_monitor_print(nid, "工具 → " + tool_name)
 	)
 	node.progress_tool_finished.connect(func(tool_name: String, ok: bool):
+		_touch_activity()
 		_monitor_print(nid, "工具 ✓ " + tool_name if ok else "工具 ✗ " + tool_name + " 失败")
 	)
 	node.progress_chunk.connect(func(chunk: String):
+		_touch_activity()
 		# 生成中 — 节流打印累计输出量，证明流式输出是实时的
 		if not _chunk_ticks.has(nid):
 			_chunk_ticks[nid] = [0, 0]
@@ -162,9 +173,11 @@ func _attach_monitor(node: AgentNode) -> void:
 			_monitor_print(nid, "生成中… 已输出 %d 字符" % _chunk_ticks[nid][0])
 	)
 	node.progress_done.connect(func():
+		_touch_activity()
 		_monitor_print(nid, "完成（%d 轮）" % node.get_round_count())
 	)
 	node.progress_error.connect(func(err: String):
+		_touch_activity()
 		_monitor_print(nid, "终态错误: " + err.substr(0, 120))
 	)
 	_monitor_print(nid, "监控已接入")
