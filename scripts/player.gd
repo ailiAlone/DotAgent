@@ -18,10 +18,7 @@ signal weapon_level_changed(level)
 signal weapon_type_changed(weapon_type)
 
 @export var speed = 420.0
-@export var fire_rate = 0.18
 @export var max_hp = 5
-@export var alt_fire_rate = 0.35
-@export var alt_ammo = 0
 
 var hp = 3
 var fire_timer = 0.0
@@ -115,15 +112,19 @@ func _process(delta):
 	fire_timer -= delta
 	engine_pulse = fmod(engine_pulse + delta * 8.0, TAU)
 
+	var data = _weapon_data()
+	var weapon_fire_rate: float = data.get("fire_rate", 0.18)
+
 	if Input.is_action_pressed("shoot") and fire_timer <= 0:
 		fire()
-		fire_timer = 0.07 if rapid_fire_timer > 0 else fire_rate
+		fire_timer = 0.07 if rapid_fire_timer > 0 else weapon_fire_rate
 
 	if alt_fire_timer > 0:
 		alt_fire_timer -= delta
 	if Input.is_action_pressed("alt_shoot") and alt_fire_timer <= 0:
 		fire_spread()
-		alt_fire_timer = 0.4
+		var spread_data = _spread_weapon_data()
+		alt_fire_timer = spread_data.get("fire_rate", 0.28)
 	queue_redraw()
 
 func _weapon_data() -> Dictionary:
@@ -131,6 +132,12 @@ func _weapon_data() -> Dictionary:
 	if ws:
 		return ws.get_weapon_data(weapon_type, weapon_level)
 	return {"damage": 1, "fire_rate": 0.18, "bullet_count": 2, "bullet_speed": 900.0, "spread": 0.12, "color": Color(1.0, 0.95, 0.4)}
+
+func _spread_weapon_data() -> Dictionary:
+	var ws = _ws()
+	if ws:
+		return ws.get_weapon_data(1, 1)  # Always use SPREAD data for secondary fire
+	return {"damage": 1, "fire_rate": 0.28, "bullet_count": 5, "bullet_speed": 700.0, "spread": 0.22, "color": Color(1.0, 0.5, 0.3)}
 
 func _emit_shot(offset: Vector2, dir: Vector2, data: Dictionary, is_spread: bool = false):
 	var extra = {
@@ -170,10 +177,7 @@ func fire():
 
 func fire_spread():
 	_am().play_sfx("shoot")
-	var ws = _ws()
-	var data = {"damage": 1, "bullet_speed": 700.0, "color": Color(0.4, 0.95, 1.0)}
-	if ws:
-		data = ws.get_weapon_data(1, 1)
+	var data = _spread_weapon_data()
 	var forward = Vector2.UP
 	var directions = [
 		forward.rotated(-0.7),
@@ -269,6 +273,8 @@ func apply_powerup(type):
 	elif type == 4:
 		_gm().score_multiplier = max(_gm().score_multiplier, 2.0)
 		_gm().score_multiplier_timer = 10.0
+	elif type == 5:
+		upgrade_weapon()
 	_am().play_sfx("powerup")
 	powerup_collected.emit(type)
 

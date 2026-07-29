@@ -1,10 +1,14 @@
 extends Control
 
+
 static func _gm():
 	return Engine.get_main_loop().root.get_node_or_null("GameManager")
 
 static func _am():
 	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
+
+static func _ws():
+	return Engine.get_main_loop().root.get_node_or_null("WeaponSystem")
 
 @onready var score_label: Label = $Margin/HBox/Score/Value
 @onready var high_label: Label = $Margin/HBox/HighScore/Value
@@ -89,9 +93,9 @@ func _update_wave_label():
 	wave_label.text = "W%d" % _wave_num
 
 func _update_weapon_label():
-	var ws = Engine.get_main_loop().root.get_node_or_null("WeaponSystem")
+	var ws = _ws()
 	var type_name = "PISTOL"
-	if ws:
+	if ws and ws.has_method("weapon_type_name"):
 		type_name = ws.weapon_type_name(_weapon_type)
 	weapon_label.text = "%s Lv.%d" % [type_name, _weapon_level]
 
