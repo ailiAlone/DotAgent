@@ -1293,14 +1293,23 @@ func _build_node_context() -> String:
 	if not children_summaries.is_empty():
 		parts.append("")
 		parts.append("## Your Child Nodes")
-		parts.append("These nodes already exist and hold knowledge about their areas. Route tasks to them when appropriate.")
+		parts.append("IMPORTANT: These nodes are persistent experts in their domains. Before doing any work yourself, check if the task falls within a child's managed files below. If it does, use route_to_child() — do NOT do the work yourself.")
 		for cs in children_summaries:
 			var cid: String = str(cs.get("id", ""))
 			var cstatus: String = str(cs.get("status", ""))
 			var csummary: String = str(cs.get("summary", ""))
 			var cfiles = cs.get("files", [])
 			var fc: int = cfiles.size() if cfiles is Array else 0
-			parts.append("- **%s** [%s] — %s (%d files)" % [cid, cstatus, csummary.substr(0, 120), fc])
+			parts.append("- **%s** [%s] (%d files)" % [cid, cstatus, fc])
+			if fc > 0:
+				var file_list: String = ""
+				for i in range(mini(fc, 8)):
+					file_list += str(cfiles[i]) + ", "
+				if fc > 8:
+					file_list += "... (+%d more)" % (fc - 8)
+				parts.append("  Files: %s" % file_list)
+			if not csummary.is_empty():
+				parts.append("  Knowledge: %s" % csummary.substr(0, 150))
 
 	if not history.is_empty():
 		parts.append("")
