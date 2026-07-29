@@ -13,3 +13,5 @@ shape = SubResource("RectangleShape2D_b1")
 
 [node name="Trail" type="Line2D" parent="."]
 z_index = -1
+
+[node name="Glow" type="PointLight2D" parent="."]

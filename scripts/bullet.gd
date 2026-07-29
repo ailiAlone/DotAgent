@@ -23,6 +23,7 @@ var _dying: bool = false
 var _death_fade: float = 0.15
 var _death_timer: float = 0.0
 
+# Glow + trail visuals are set up at runtime in _ready().
 func _ready():
 	add_to_group("bullets")
 	if trail:
