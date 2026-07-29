@@ -735,7 +735,7 @@ func _do_llm_request() -> bool:
 	if not tool_calls.is_empty():
 		assistant_msg["tool_calls"] = tool_calls.duplicate(true)
 	if not assistant_msg.has("content"):
-		assistant_msg["content"] = null
+		assistant_msg["content"] = ""  # Kimi API 不接受 null content，必须是字符串
 	messages.append(assistant_msg)
 
 	_release_slot()
