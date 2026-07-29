@@ -1,4 +1,3 @@
-class_name ComboSystem
 extends Node
 
 ## Combo Kill System

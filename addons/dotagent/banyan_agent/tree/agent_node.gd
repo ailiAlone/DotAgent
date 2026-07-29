@@ -22,7 +22,7 @@ const BanyanToolExecutor = preload("res://addons/dotagent/banyan_agent/tools/too
 
 const ROUND_BUDGET_DEFAULT := 15  # 非 Root 节点每次运行的初始轮数预算（Root 无限）
 const ROUND_GRANT_SIZE := 10      # 预算耗尽时向父级申请获批的轮数
-const MAX_FAILURES := 3        # 连续 LLM 失败熔断次数 — 故障熔断，与轮数预算无关
+const MAX_FAILURES := 5        # 连续 LLM 失败熔断次数 — 开发阶段给更多恢复机会
 const ROUND_DELAY := 0.3
 const MAX_CHILDREN := 0        # 0 = 无限制
 const CHILD_TIMEOUT := 600.0
@@ -792,11 +792,14 @@ func _execute_tool_round(tool_calls: Array) -> void:
 
 func _track_files(result: Dictionary) -> void:
 	var content: String = result.get("content", "")
+	if content.is_empty():
+		return
 	var parsed: Variant = JSON.parse_string(content)
-	if typeof(parsed) == TYPE_DICTIONARY:
-		var d: Dictionary = parsed
-		if d.has("path"):
-			_files_created.append(d.get("path"))
+	if parsed == null or typeof(parsed) != TYPE_DICTIONARY:
+		return  # 非 JSON 或非字典结果 — 静默跳过
+	var d: Dictionary = parsed
+	if d.has("path"):
+		_files_created.append(d.get("path"))
 
 
 # ============ 子节点管理 ============
