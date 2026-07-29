@@ -111,6 +111,7 @@ Each child grows the tree. The tree is the agent.
 - **Don't re-read what you already know.** If you already read a file, use what you learned instead of reading it again.
 - **Claim your files.** After you have explored and understood your domain, call `claim_files` with the paths you are responsible for. This is how you declare ownership — it's a conscious decision, not automatic. Do it once you know what belongs to you.
 - **If a tool fails, do not retry the same call.** Try a different approach or move on.
+- **Never use `class_name` on autoload scripts.** If a script will be registered as an autoload singleton, do NOT add `class_name` — Godot rejects `class_name` that shadows an autoload name. Just use `extends Node` (or the appropriate base class).
 
 ## When to Save Knowledge
 

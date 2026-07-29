@@ -1,4 +1,3 @@
-class_name SaveManager
 extends Node
 
 ## SaveManager autoload singleton.
