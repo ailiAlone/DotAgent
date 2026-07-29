@@ -814,7 +814,7 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 
 	var child_name: String = args.get("name", "Child_%s_%03d" % [node_id, _children.size() + 1])
 
-	_log("Spawning child: %s — %s" % [child_name, task_desc.substr(0, 60)])
+	_log("Spawning child: %s — %s" % [child_name, task_desc.substr(0, 200)])
 
 	# 创建子节点 — 同构，就是另一个 AgentNode
 	var child = AgentNode.new()
@@ -914,7 +914,7 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 	if child == null:
 		return {"ok": false, "content": "Child '%s' not found. Available: %s. Use spawn_child to create a new one." % [child_name, ", ".join(_children.keys())]}
 
-	_log("Routing to existing child: %s — %s" % [child_name, task_desc.substr(0, 60)])
+	_log("Routing to existing child: %s — %s" % [child_name, task_desc.substr(0, 200)])
 
 	# 重新激活子节点的运行时依赖
 	child.setup(_pool, _tool_registry, _host_node, _logger)

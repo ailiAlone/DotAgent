@@ -30,6 +30,7 @@ var _last_activity_msec := 0  # 最近一次活动时间（空闲超时用）
 
 var _monitored: Dictionary = {}      # node instance → true（防止重复连接）
 var _chunk_ticks: Dictionary = {}    # node_id → [累计字符数, 上次打印时间]
+var _last_status_msec := 0           # 上次打印状态概览的时间
 
 
 func _initialize() -> void:
@@ -44,7 +45,30 @@ func _process(_delta: float) -> bool:
 		if _root_node:
 			_root_node.abort()
 		_finish_run()
+	# 周期状态概览：每 30 秒打印一次所有节点的状态
+	if _root_node and _start_msec > 0 and float(Time.get_ticks_msec() - _last_status_msec) / 1000.0 > 30.0:
+		_last_status_msec = Time.get_ticks_msec()
+		_print_tree_status()
 	return _done
+
+
+func _print_tree_status() -> void:
+	var elapsed: float = float(Time.get_ticks_msec() - _start_msec) / 1000.0
+	var idle: float = float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0
+	print("[TREE %.0fs idle=%.0fs] ─────────────────────────" % [elapsed, idle])
+	_print_node_status(_root_node, 0)
+
+
+func _print_node_status(node: AgentNode, depth: int) -> void:
+	if node == null:
+		return
+	var indent: String = "  ".repeat(depth)
+	var state: String = _state_name(node.node_state)
+	var rounds: int = node.get_round_count()
+	var children_count: int = node._children.size()
+	print("[TREE] %s%-18s [%-10s] R%d children=%d" % [indent, node.node_id, state, rounds, children_count])
+	for cname in node._children:
+		_print_node_status(node._children[cname], depth + 1)
 
 
 func _touch_activity() -> void:
