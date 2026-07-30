@@ -8,6 +8,8 @@ extends SceneTree
 
 const BanyanPool = preload("res://addons/dotagent/banyan_agent/http/http_client_pool.gd")
 const AgentTreeScript = preload("res://addons/dotagent/banyan_agent/tree/agent_tree.gd")
+const AgentNode = preload("res://addons/dotagent/banyan_agent/tree/agent_node.gd")
+const ToolRegistry = preload("res://addons/dotagent/tools/tool_registry.gd")
 const BanyanToolLoader = preload("res://addons/dotagent/banyan_agent/tools/tool_loader.gd")
 const BanyanRunLogScript = preload("res://addons/dotagent/log/banyan_run_log.gd")
 
