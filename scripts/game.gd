@@ -63,6 +63,9 @@ func _on_lives_changed(value: int) -> void:
 
 func _show_game_over() -> void:
 	_game_over_active = true
+	var am: Node = _am()
+	if am != null and am.has_method("play_gameover"):
+		am.play_gameover()
 	var gm: Node = _gm()
 	if gm != null:
 		gm.set_pause(true)
@@ -107,6 +110,9 @@ func _handle_shooting(delta: float) -> void:
 
 
 func _spawn_bullet(position: Vector2) -> void:
+	var am: Node = _am()
+	if am != null and am.has_method("play_shoot"):
+		am.play_shoot()
 	var bullet: Node2D = bullet_scene.instantiate() as Node2D
 	if bullet == null:
 		push_error("Failed to instantiate bullet.")
@@ -174,6 +180,9 @@ func _handle_collisions() -> void:
 				break
 
 		if is_instance_valid(player) and enemy_pos.distance_to(player.position) < enemy_size + PLAYER_RADIUS:
+			var am: Node = _am()
+			if am != null and am.has_method("play_hit"):
+				am.play_hit()
 			_spawn_explosion(enemy_pos)
 			enemy.queue_free()
 			var player_has_shield: bool = false
@@ -186,6 +195,9 @@ func _handle_collisions() -> void:
 
 
 func _on_enemy_destroyed(enemy: Node2D, position: Vector2) -> void:
+	var am: Node = _am()
+	if am != null and am.has_method("play_explode"):
+		am.play_explode()
 	var gm: Node = _gm()
 	var score_value: int = enemy.get("SCORE_VALUE") as int
 	if gm != null:
@@ -236,6 +248,9 @@ func _handle_powerup_collection() -> void:
 
 
 func _collect_powerup(powerup: Node2D, player: Node2D) -> void:
+	var am: Node = _am()
+	if am != null and am.has_method("play_powerup"):
+		am.play_powerup()
 	var type_index: int = powerup.get("powerup_type") as int
 	var type_string: String = _powerup_type_to_string(type_index)
 	if type_string == "bomb":
@@ -261,6 +276,9 @@ func _powerup_type_to_string(type_index: int) -> String:
 
 
 func _activate_bomb() -> void:
+	var am: Node = _am()
+	if am != null and am.has_method("play_explode"):
+		am.play_explode()
 	var enemies: Array = _get_enemies()
 	for enemy: Node2D in enemies:
 		if is_instance_valid(enemy):
@@ -326,3 +344,7 @@ func _show_kill_feedback(position: Vector2) -> void:
 
 static func _gm() -> Node:
 	return Engine.get_main_loop().root.get_node_or_null("GameManager")
+
+
+static func _am() -> Node:
+	return Engine.get_main_loop().root.get_node_or_null("AudioManager")
