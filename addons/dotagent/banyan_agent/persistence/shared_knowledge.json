@@ -1,1 +1,41 @@
-{"entries": []}
+{
+	"entries": [
+		{
+			"category": "interface",
+			"node_id": "EnemySystem",
+			"summary": "EnemySystem: Enemy is an Area2D (res://scenes/enemy.tscn + scripts/enemy.gd). Exports speed=150, health=1, score_value=100. Signal died(position). Auto-adds to 'enemies' group. Moves downward, despawn below viewport. take_damage() -> die() emits died, calls GameManager.add_score(score_value), queues free. On body_entered with 'players' group, calls body.take_damage() then queues free. No shooting logic.",
+			"tags": [
+				"enemy",
+				"enemy_system",
+				"area2d",
+				"signals",
+				"exports"
+			],
+			"timestamp": "2026-07-30T11:16:26"
+		},
+		{
+			"category": "interface",
+			"node_id": "EnemySystem",
+			"summary": "ExplosionSystem: Explosion is a Node2D (res://scenes/explosion.tscn + scripts/explosion.gd). Exports max_radius=60, duration=0.5, color=Color.ORANGE, line_width=4.0. Self-draws expanding arc via _draw(); auto queue_free() after duration. No signal. Must be spawned at enemy death position.",
+			"tags": [
+				"explosion",
+				"visual_effect",
+				"enemy_system"
+			],
+			"timestamp": "2026-07-30T11:16:26"
+		},
+		{
+			"category": "dependency",
+			"node_id": "EnemySystem",
+			"summary": "Collision layer/mask gaps: enemy.tscn Area2D and player.tscn CharacterBody2D have no explicit collision_layer or collision_mask set, so they rely on Godot defaults (layer/mask = 1). Player is not in 'players' group, nor does it implement take_damage(), which enemy.gd expects for player collision. Player bullets are NOT implemented anywhere in the project (no bullet scene, no bullet script, no shoot input).",
+			"tags": [
+				"enemy",
+				"player",
+				"collision",
+				"missing_bullets",
+				"groups"
+			],
+			"timestamp": "2026-07-30T11:16:26"
+		}
+	]
+}
