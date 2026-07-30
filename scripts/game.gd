@@ -8,18 +8,25 @@ const WAVE_INTERVAL: float = 30.0
 const WAVE_SPEED_MULT: float = 0.15
 const SHAKE_DURATION: float = 0.12
 const SHAKE_STRENGTH: float = 6.0
+const BOSS_DEATH_SHAKE_DURATION: float = 0.6
+const BOSS_DEATH_SHAKE_STRENGTH: float = 20.0
 const PLAYER_RADIUS: float = 20.0
+const BOSS_BULLET_DAMAGE: int = 1
 
 @onready var hud_scene: PackedScene = preload("res://scenes/hud.tscn")
 @onready var bullet_scene: PackedScene = preload("res://scenes/bullet.tscn")
 @onready var enemy_scene: PackedScene = preload("res://scenes/enemy.tscn")
 @onready var explosion_scene: PackedScene = preload("res://scenes/explosion.tscn")
 @onready var powerup_scene: PackedScene = preload("res://scenes/powerup.tscn")
+@onready var boss_scene: PackedScene = preload("res://scenes/boss.tscn")
+@onready var boss_bullet_scene: PackedScene = preload("res://scenes/boss_bullet.tscn")
 
 var _spawn_timer: float = 0.0
 var _wave_timer: float = 0.0
 var _shoot_timer: float = 0.0
 var _game_over_active: bool = false
+var _boss_active: bool = false
+var _current_boss: Node2D = null
 
 
 func _ready() -> void:

@@ -1,6 +1,6 @@
 extends CanvasLayer
 
-## Head-up display showing score, lives, high score, current wave, weapon level, kill feedback and combos.
+## Head-up display showing score, lives, high score, current wave, weapon level, boss health, kill feedback and combos.
 
 const Singleton: String = "GameManager"
 
@@ -16,6 +16,9 @@ signal resume_requested
 @onready var resume_button: Button = %ResumeButton
 @onready var restart_button: Button = %RestartButton
 @onready var quit_button: Button = %QuitButton
+@onready var boss_health_container: VBoxContainer = %BossHealthContainer
+@onready var boss_health_label: Label = %BossHealthLabel
+@onready var boss_health_bar: ProgressBar = %BossHealthBar
 
 var _kill_count: int = 0
 var _combo_timer: float = 0.0
@@ -34,6 +37,8 @@ func _ready() -> void:
 	gm.wave_changed.connect(_on_wave_changed)
 	gm.game_paused.connect(_on_game_paused)
 	_update_pause_overlay(gm.paused)
+	_update_boss_health_bar(0, 1)
+	_update_boss_health_visibility(false)
 	
 	if resume_button != null:
 		resume_button.pressed.connect(_on_resume_pressed)
@@ -103,6 +108,19 @@ func set_weapon_level(level: int) -> void:
 		weapon_level_label.text = "LVL: " + str(level)
 
 
+func set_boss_health(health: int, max_health: int) -> void:
+	_update_boss_health_visibility(max_health > 0)
+	if max_health <= 0:
+		return
+	_update_boss_health_bar(health, max_health)
+	if boss_health_label != null:
+		boss_health_label.text = "BOSS HP: " + str(health) + "/" + str(max_health)
+
+
+func hide_boss_health() -> void:
+	_update_boss_health_visibility(false)
+
+
 func _update_labels(new_score: int = -1, new_high_score: int = -1, new_lives: int = -1, new_wave: int = -1) -> void:
 	if new_score >= 0 and score_label != null:
 		score_label.text = "SCORE: " + str(new_score)
@@ -117,6 +135,19 @@ func _update_labels(new_score: int = -1, new_high_score: int = -1, new_lives: in
 func _update_pause_overlay(is_paused: bool) -> void:
 	if pause_overlay != null:
 		pause_overlay.visible = is_paused
+
+
+func _update_boss_health_bar(health: int, max_health: int) -> void:
+	if boss_health_bar != null:
+		if max_health > 0:
+			boss_health_bar.value = float(health) / float(max_health) * 100.0
+		else:
+			boss_health_bar.value = 0.0
+
+
+func _update_boss_health_visibility(visible: bool) -> void:
+	if boss_health_container != null:
+		boss_health_container.visible = visible
 
 
 func show_kill_feedback(world_position: Vector2, current_score: int) -> void:

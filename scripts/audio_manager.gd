@@ -53,6 +53,10 @@ func play_gameover() -> void:
 	_play_sfx(_generate_gameover())
 
 
+func play_boss_explode() -> void:
+	_play_sfx(_generate_boss_explode())
+
+
 func toggle_mute() -> void:
 	AudioServer.set_bus_mute(0, not AudioServer.is_bus_mute(0))
 	muted_changed.emit(AudioServer.is_bus_mute(0))
@@ -151,6 +155,16 @@ func _generate_explode() -> AudioStreamWAV:
 	var env: Callable = func(t: float, duration: float) -> float:
 		return maxf(0.0, 1.0 - t / duration)
 	return _generate_noise(0.5, env)
+
+
+func _generate_boss_explode() -> AudioStreamWAV:
+	var freq: Callable = func(t: float) -> float:
+		return 120.0 - t * 50.0
+	var env: Callable = func(t: float, duration: float) -> float:
+		var decay: float = maxf(0.0, 1.0 - t / duration)
+		return decay * decay
+	var boom: AudioStreamWAV = _generate_noise(1.5, env)
+	return boom
 
 
 func _generate_powerup() -> AudioStreamWAV:
