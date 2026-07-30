@@ -366,7 +366,7 @@ func _validate_script_with_hints(content: String, path: String) -> String:
 	var tmp_path: String = "user://_tmp_validate_%d.gd" % (Time.get_ticks_msec() % 100000)
 	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
 	if f == null:
-		return ""
+		return _content_based_hints(content)
 	f.store_string(content)
 	f.close()
 
@@ -376,10 +376,14 @@ func _validate_script_with_hints(content: String, path: String) -> String:
 	# 清理临时文件
 	DirAccess.remove_absolute(tmp_path)
 
-	if detail.is_empty() or detail == "__UNAVAILABLE__":
+	if detail.is_empty():
 		return ""
 
-	# 根据错误模式添加修复提示
+	# subprocess 不可用时，回退到内容扫描
+	if detail == "__UNAVAILABLE__":
+		return _content_based_hints(content)
+
+	# 根据 subprocess 错误模式添加修复提示
 	var hints: Array = []
 	var lines: Array = detail.split("\n")
 	for line in lines:
@@ -390,19 +394,59 @@ func _validate_script_with_hints(content: String, path: String) -> String:
 		if ll.contains("expected") and (ll.contains("indent") or ll.contains("dedent") or ll.contains("colon")):
 			if not hints.has("indent_colon"):
 				hints.append("indent_colon")
+		if ll.contains("mixed use of tabs"):
+			if not hints.has("tabs_spaces"):
+				hints.append("tabs_spaces")
 		if ll.contains("autoload") or (ll.contains("identifier") and _is_autoload_error(line)):
 			if not hints.has("autoload"):
 				hints.append("autoload")
 
+	var hint_text: String = _format_hints(hints)
+	return detail + hint_text
+
+
+## 基于脚本内容扫描的通用修复提示（subprocess 不可用时的回退方案）
+func _content_based_hints(content: String) -> String:
+	var hints: Array = []
+	var autoload_names: Array = _get_autoload_names()
+	for aname in autoload_names:
+		# 检测直接引用 autoload（如 GameManager.score 而非 _gm().score）
+		if content.contains(aname + ".") and not content.contains("get_node_or_null(\"" + aname + "\")"):
+			if not hints.has("autoload"):
+				hints.append("autoload")
+	# 检测 tabs/spaces 混合
+	var has_tabs: bool = content.contains("\t")
+	var has_leading_spaces: bool = false
+	for line in content.split("\n"):
+		if line.length() > 0 and line[0] == " " and line.begins_with("  "):
+			has_leading_spaces = true
+			break
+	if has_tabs and has_leading_spaces:
+		hints.append("tabs_spaces")
+	# 检测缺少类型标注的 var 声明
+	for line in content.split("\n"):
+		var stripped: String = line.strip_edges()
+		if stripped.begins_with("var ") and not stripped.contains(":") and not stripped.contains("="):
+			if not hints.has("missing_type"):
+				hints.append("missing_type")
+			break
+	return _format_hints(hints)
+
+
+## 格式化修复提示文本
+func _format_hints(hints: Array) -> String:
 	var hint_text: String = ""
 	if hints.has("undeclared_var"):
 		hint_text += "\n[FIX] Undeclared variable: add 'var name: Type = default' at class level, or ensure the variable is defined before use."
 	if hints.has("indent_colon"):
 		hint_text += "\n[FIX] Indentation/syntax: check that func/if/for/while/match lines end with ':', and body is indented with tabs."
+	if hints.has("tabs_spaces"):
+		hint_text += "\n[FIX] Mixed tabs and spaces: use ONLY tabs for indentation in GDScript (never spaces). Check your editor settings."
 	if hints.has("autoload"):
-		hint_text += "\n[FIX] Autoload access in headless mode: use 'static func _gm(): return Engine.get_main_loop().root.get_node_or_null(\"GameManager\")' pattern instead of direct references."
-
-	return detail + hint_text
+		hint_text += "\n[FIX] Autoload access in headless mode: use 'static func _gm(): return Engine.get_main_loop().root.get_node_or_null(\"GameManager\")' pattern instead of direct references like GameManager.score."
+	if hints.has("missing_type"):
+		hint_text += "\n[FIX] Missing type annotation: GDScript 4.5 requires explicit types. Use 'var x: int = 0' not 'var x = 0'."
+	return hint_text
 
 
 ## 检查错误行是否涉及 autoload 引用
