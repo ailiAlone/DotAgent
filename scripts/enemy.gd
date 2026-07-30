@@ -14,7 +14,8 @@ func _ready() -> void:
 	area_entered.connect(_on_area_entered)
 
 func _physics_process(delta: float) -> void:
-	position += Vector2.DOWN * speed * delta
+	var wave_speed_bonus := 20.0 * (GameManager.wave - 1)
+	position += Vector2.DOWN * (speed + wave_speed_bonus) * delta
 
 	var viewport_size := get_viewport_rect().size
 	if position.y > viewport_size.y + 50.0:

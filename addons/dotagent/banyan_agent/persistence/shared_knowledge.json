@@ -36,6 +36,19 @@
 				"groups"
 			],
 			"timestamp": "2026-07-30T11:16:26"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "Game 现在管理波次、震屏、击杀与连击状态。GameManager 新增 kill_count/combo 信号与 register_kill()，敌人死亡时 Game 调用 register_kill() 并触发 Camera2D offset Tween 震屏。HUD 已连接新信号显示 Kills 和 Combo。每 30 秒自动 next_wave，敌人速度与生成间隔随波次提升。",
+			"tags": [
+				"game_manager",
+				"wave",
+				"combo",
+				"camera_shake",
+				"hud"
+			],
+			"timestamp": "2026-07-30T11:37:20"
 		}
 	]
 }
