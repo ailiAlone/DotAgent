@@ -108,7 +108,7 @@ var _read_files: Array = []
 var _exec_actions_this_run: int = 0    # 本次运行中执行/委派类工具调用次数（只读探索不计）
 var _completion_challenged: bool = false  # 本次运行是否已挑战过"零执行收工"（每次运行最多挑战一次）
 var _nudge_count: int = 0              # 本次运行中 nudge 次数（限制 reminder 消息）
-var _consecutive_nudge_rounds: int = 0  # 连续 nudge 轮数（超过阈值后强制 reasoning）
+var _recent_actions: Array = []         # 最近 6 轮的动作（"nudge"/"execute"/other）用于检测 nudge 占比
 var _knowledge_saved_count: int = 0     # 本次运行保存的知识条目数（用于 Completion Challenge 快速通道）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
@@ -205,7 +205,7 @@ func run(ticket: Dictionary = {}) -> void:
 	_exec_actions_this_run = 0
 	_completion_challenged = false
 	_nudge_count = 0
-	_consecutive_nudge_rounds = 0
+	_recent_actions = []
 	_knowledge_saved_count = 0
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
@@ -306,7 +306,9 @@ func run(ticket: Dictionary = {}) -> void:
 			_nudged = true
 		elif action == ACTION_EXECUTE:
 			_nudged = false
-			_consecutive_nudge_rounds = 0  # 有 reasoning 的正常执行，重置连续 nudge 计数
+			_recent_actions.append("execute")
+			if _recent_actions.size() > 6:
+				_recent_actions.pop_front()
 		elif action == ACTION_REDIRECT:
 			_redirected = true
 
@@ -403,13 +405,20 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 	match action:
 		ACTION_NUDGE:
 			_nudge_count += 1
-			_consecutive_nudge_rounds += 1
-			if _consecutive_nudge_rounds >= 3:
-				# 硬限制：连续 3 轮无 reasoning — 拒绝执行工具，强制 LLM 停下来思考
-				_log("Round %d: %d consecutive nudge rounds — HARD STOP, refusing tool execution" % [_round_count, _consecutive_nudge_rounds])
+			_recent_actions.append("nudge")
+			if _recent_actions.size() > 6:
+				_recent_actions.pop_front()
+			# 滑动窗口检测：最近 6 轮中 4+ 轮是 nudge → 强制停止
+			var nudge_in_window: int = 0
+			for a in _recent_actions:
+				if a == "nudge":
+					nudge_in_window += 1
+			if nudge_in_window >= 4:
+				# 硬限制：nudge 占比过高 — 拒绝执行工具，强制 LLM 停下来思考
+				_log("Round %d: %d/%d recent rounds are nudge — HARD STOP, refusing tool execution" % [_round_count, nudge_in_window, _recent_actions.size()])
 				messages.append({
 					"role": "user",
-					"content": "STOP. You have called tools %d rounds in a row without explaining what you're doing. Do NOT call any tools in your next reply. Instead, write a brief plan: what is your goal, what have you accomplished so far, and what is your next step. Then in the round after that, resume work with reasoning before each tool call." % _consecutive_nudge_rounds,
+					"content": "STOP. %d of your last 6 rounds had tool calls without any reasoning. Do NOT call any tools in your next reply. Instead, write a brief plan: what is your goal, what have you accomplished so far, and what is your next step. Then resume work with reasoning before each tool call." % nudge_in_window,
 				})
 			else:
 				# 软 nudge：正常执行工具，但前 2 次附加提醒消息

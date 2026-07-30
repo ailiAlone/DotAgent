@@ -2,8 +2,13 @@
 
 [node name="Main" type="Node2D"]
 
-[node name="Game" type="Node2D" parent="."]
-script = "res://scripts/game.gd"
+[node name="MenuLayer" type="CanvasLayer" parent="."]
 
-[node name="Player" type="Node2D" parent="Game"]
-script = "res://scripts/player.gd"
+[node name="MenuPlaceholder" type="Control" parent="MenuLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = "res://scripts/menu.gd"

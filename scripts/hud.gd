@@ -13,6 +13,9 @@ signal resume_requested
 @onready var wave_label: Label = %WaveLabel
 @onready var weapon_level_label: Label = %WeaponLevelLabel
 @onready var pause_overlay: Control = %PauseOverlay
+@onready var resume_button: Button = %ResumeButton
+@onready var restart_button: Button = %RestartButton
+@onready var quit_button: Button = %QuitButton
 
 var _kill_count: int = 0
 var _combo_timer: float = 0.0
@@ -31,6 +34,13 @@ func _ready() -> void:
 	gm.wave_changed.connect(_on_wave_changed)
 	gm.game_paused.connect(_on_game_paused)
 	_update_pause_overlay(gm.paused)
+	
+	if resume_button != null:
+		resume_button.pressed.connect(_on_resume_pressed)
+	if restart_button != null:
+		restart_button.pressed.connect(_on_restart_pressed)
+	if quit_button != null:
+		quit_button.pressed.connect(_on_quit_pressed)
 
 
 func _process(delta: float) -> void:
@@ -46,6 +56,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		if gm != null:
 			gm.toggle_pause()
 			get_viewport().set_input_as_handled()
+
+
+func _on_resume_pressed() -> void:
+	var gm: Node = _gm()
+	if gm != null:
+		gm.set_pause(false)
+
+
+func _on_restart_pressed() -> void:
+	var gm: Node = _gm()
+	if gm != null:
+		gm.set_pause(false)
+	get_tree().change_scene_to_file("res://scenes/game.tscn")
+
+
+func _on_quit_pressed() -> void:
+	var gm: Node = _gm()
+	if gm != null:
+		gm.set_pause(false)
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func _on_score_changed(value: int) -> void:

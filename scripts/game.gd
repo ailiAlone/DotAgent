@@ -19,6 +19,7 @@ const PLAYER_RADIUS: float = 20.0
 var _spawn_timer: float = 0.0
 var _wave_timer: float = 0.0
 var _shoot_timer: float = 0.0
+var _game_over_active: bool = false
 
 
 func _ready() -> void:
@@ -26,6 +27,7 @@ func _ready() -> void:
 	if gm != null:
 		gm.reset()
 		gm.game_paused.connect(_on_game_paused)
+		gm.lives_changed.connect(_on_lives_changed)
 	var hud_instance: CanvasLayer = hud_scene.instantiate() as CanvasLayer
 	if hud_instance != null:
 		hud_instance.name = "HUD"
@@ -52,6 +54,19 @@ func _input(event: InputEvent) -> void:
 
 func _on_game_paused(is_paused: bool) -> void:
 	print("Game paused: ", is_paused)
+
+
+func _on_lives_changed(value: int) -> void:
+	if value <= 0 and not _game_over_active:
+		_show_game_over()
+
+
+func _show_game_over() -> void:
+	_game_over_active = true
+	var gm: Node = _gm()
+	if gm != null:
+		gm.set_pause(true)
+	get_tree().change_scene_to_file("res://scenes/game_over.tscn")
 
 
 func _handle_shooting(delta: float) -> void:
@@ -93,9 +108,11 @@ func _handle_shooting(delta: float) -> void:
 
 func _spawn_bullet(position: Vector2) -> void:
 	var bullet: Node2D = bullet_scene.instantiate() as Node2D
-	if bullet != null:
-		bullet.position = position
-		add_child(bullet)
+	if bullet == null:
+		push_error("Failed to instantiate bullet.")
+		return
+	bullet.position = position
+	add_child(bullet)
 
 
 func _handle_spawning(delta: float) -> void:
@@ -103,21 +120,30 @@ func _handle_spawning(delta: float) -> void:
 	if gm != null and gm.paused:
 		return
 
-	var interval: float = SPAWN_INTERVAL
-	if gm != null and gm.wave > 1:
-		interval = maxf(0.4, SPAWN_INTERVAL - (gm.wave - 1) * 0.15)
-
 	_spawn_timer += delta
-	if _spawn_timer >= interval:
+	if _spawn_timer >= SPAWN_INTERVAL:
 		_spawn_timer = 0.0
-		var enemy: Node2D = enemy_scene.instantiate() as Node2D
-		if enemy != null:
-			var speed_mult: float = 1.0
-			if gm != null:
-				speed_mult = 1.0 + (gm.wave - 1) * WAVE_SPEED_MULT
-			if enemy.has_method("set_speed_multiplier"):
-				enemy.set_speed_multiplier(speed_mult)
-			add_child(enemy)
+		_spawn_enemy()
+
+
+func _spawn_enemy() -> void:
+	var enemy: Node2D = enemy_scene.instantiate() as Node2D
+	if enemy == null:
+		push_error("Failed to instantiate enemy.")
+		return
+
+	var speed_mult: float = 1.0 + (WAVE_SPEED_MULT * (get_wave() - 1))
+	if enemy.has_method("set_speed_multiplier"):
+		enemy.set_speed_multiplier(speed_mult)
+
+	add_child(enemy)
+
+
+func get_wave() -> int:
+	var gm: Node = _gm()
+	if gm != null:
+		return gm.wave as int
+	return 1
 
 
 func _handle_waves(delta: float) -> void:
