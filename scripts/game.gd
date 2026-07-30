@@ -1,6 +1,6 @@
 extends Node2D
 
-## Main game scene: manages the player, HUD, bullets, enemies, spawns, waves, and polish effects.
+## Main game scene: manages the player, HUD, bullets, enemies, spawns, waves, powerups, and polish effects.
 
 const Singleton: String = "GameManager"
 const SPAWN_INTERVAL: float = 2.0
@@ -8,14 +8,17 @@ const WAVE_INTERVAL: float = 30.0
 const WAVE_SPEED_MULT: float = 0.15
 const SHAKE_DURATION: float = 0.12
 const SHAKE_STRENGTH: float = 6.0
+const PLAYER_RADIUS: float = 20.0
 
 @onready var hud_scene: PackedScene = preload("res://scenes/hud.tscn")
 @onready var bullet_scene: PackedScene = preload("res://scenes/bullet.tscn")
 @onready var enemy_scene: PackedScene = preload("res://scenes/enemy.tscn")
 @onready var explosion_scene: PackedScene = preload("res://scenes/explosion.tscn")
+@onready var powerup_scene: PackedScene = preload("res://scenes/powerup.tscn")
 
 var _spawn_timer: float = 0.0
 var _wave_timer: float = 0.0
+var _shoot_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -29,13 +32,15 @@ func _ready() -> void:
 		add_child(hud_instance)
 	else:
 		push_error("Failed to instantiate HUD.")
+	_update_weapon_level_hud()
 
 
 func _process(delta: float) -> void:
-	_handle_shooting()
+	_handle_shooting(delta)
 	_handle_spawning(delta)
 	_handle_waves(delta)
 	_handle_collisions()
+	_handle_powerup_collection()
 
 
 func _input(event: InputEvent) -> void:
@@ -49,14 +54,48 @@ func _on_game_paused(is_paused: bool) -> void:
 	print("Game paused: ", is_paused)
 
 
-func _handle_shooting() -> void:
-	if Input.is_action_just_pressed("shoot"):
-		var bullet: Node2D = bullet_scene.instantiate() as Node2D
-		if bullet != null:
-			var player: Node2D = $Player as Node2D
-			bullet.position = player.position
-			bullet.position.y -= 20.0
-			add_child(bullet)
+func _handle_shooting(delta: float) -> void:
+	var player: Node2D = $Player as Node2D
+	if player == null:
+		return
+
+	_shoot_timer -= delta
+	if _shoot_timer > 0.0:
+		return
+	if not Input.is_action_pressed("shoot"):
+		return
+
+	var cooldown: float = 0.5
+	if player.has_method("get_shoot_cooldown"):
+		cooldown = player.get_shoot_cooldown() as float
+	_shoot_timer = cooldown
+
+	var level: int = 1
+	if player.has_method("get_weapon_level"):
+		level = player.get_weapon_level() as int
+
+	var base_pos: Vector2 = player.position
+	base_pos.y -= 20.0
+
+	match level:
+		1:
+			_spawn_bullet(base_pos)
+		2:
+			_spawn_bullet(base_pos + Vector2(-8.0, 0.0))
+			_spawn_bullet(base_pos + Vector2(8.0, 0.0))
+		3:
+			_spawn_bullet(base_pos + Vector2(-15.0, 0.0))
+			_spawn_bullet(base_pos)
+			_spawn_bullet(base_pos + Vector2(15.0, 0.0))
+		_:
+			_spawn_bullet(base_pos)
+
+
+func _spawn_bullet(position: Vector2) -> void:
+	var bullet: Node2D = bullet_scene.instantiate() as Node2D
+	if bullet != null:
+		bullet.position = position
+		add_child(bullet)
 
 
 func _handle_spawning(delta: float) -> void:
@@ -108,12 +147,16 @@ func _handle_collisions() -> void:
 				bullet.queue_free()
 				break
 
-		if is_instance_valid(player) and enemy_pos.distance_to(player.position) < enemy_size + 20.0:
+		if is_instance_valid(player) and enemy_pos.distance_to(player.position) < enemy_size + PLAYER_RADIUS:
 			_spawn_explosion(enemy_pos)
 			enemy.queue_free()
-			var gm: Node = _gm()
-			if gm != null:
-				gm.take_life()
+			var player_has_shield: bool = false
+			if player.has_method("is_shield_active"):
+				player_has_shield = player.is_shield_active() as bool
+			if not player_has_shield:
+				var gm: Node = _gm()
+				if gm != null:
+					gm.take_life()
 
 
 func _on_enemy_destroyed(enemy: Node2D, position: Vector2) -> void:
@@ -124,7 +167,88 @@ func _on_enemy_destroyed(enemy: Node2D, position: Vector2) -> void:
 	_spawn_explosion(position)
 	_trigger_screen_shake()
 	_show_kill_feedback(position)
+	_add_player_experience()
+	_try_spawn_powerup(position)
 	enemy.queue_free()
+
+
+func _add_player_experience() -> void:
+	var player: Node2D = $Player as Node2D
+	if player == null or not player.has_method("add_experience"):
+		return
+	var leveled_up: bool = player.add_experience(1) as bool
+	if leveled_up:
+		_update_weapon_level_hud()
+
+
+func _try_spawn_powerup(position: Vector2) -> void:
+	if randf() >= 0.3:
+		return
+	var powerup: Node2D = powerup_scene.instantiate() as Node2D
+	if powerup == null:
+		return
+	powerup.position = position
+	var type_index: int = randi() % 4
+	powerup.set("powerup_type", type_index)
+	add_child(powerup)
+
+
+func _handle_powerup_collection() -> void:
+	var player: Node2D = $Player as Node2D
+	if player == null:
+		return
+
+	for child: Node in get_children():
+		if not child.is_in_group("powerup"):
+			continue
+		var powerup: Node2D = child as Node2D
+		if powerup == null:
+			continue
+		var powerup_size: float = powerup.get("SIZE") as float
+		if powerup.position.distance_to(player.position) < powerup_size + PLAYER_RADIUS:
+			_collect_powerup(powerup, player)
+
+
+func _collect_powerup(powerup: Node2D, player: Node2D) -> void:
+	var type_index: int = powerup.get("powerup_type") as int
+	var type_string: String = _powerup_type_to_string(type_index)
+	if type_string == "bomb":
+		_activate_bomb()
+	else:
+		if player.has_method("apply_powerup"):
+			player.apply_powerup(type_string)
+	powerup.queue_free()
+
+
+func _powerup_type_to_string(type_index: int) -> String:
+	match type_index:
+		0:
+			return "heal"
+		1:
+			return "rapid_fire"
+		2:
+			return "shield"
+		3:
+			return "bomb"
+		_:
+			return "heal"
+
+
+func _activate_bomb() -> void:
+	var enemies: Array = _get_enemies()
+	for enemy: Node2D in enemies:
+		if is_instance_valid(enemy):
+			_on_enemy_destroyed(enemy, enemy.position)
+
+
+func _update_weapon_level_hud() -> void:
+	var player: Node2D = $Player as Node2D
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	if hud == null or player == null or not player.has_method("get_weapon_level"):
+		return
+	var level: int = player.get_weapon_level() as int
+	if hud.has_method("set_weapon_level"):
+		hud.set_weapon_level(level)
 
 
 func _get_enemies() -> Array:

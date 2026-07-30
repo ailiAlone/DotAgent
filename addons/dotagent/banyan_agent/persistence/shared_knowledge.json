@@ -1,1 +1,38 @@
-{"entries": []}
+{
+	"entries": [
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "Powerup system: powerup.gd uses enum Type {HEAL, RAPID_FIRE, SHIELD, BOMB}, falls at DROP_SPEED 80 px/s, drawn as colored circle, collected via distance check in game.gd. Scene root has group \"powerup\".",
+			"tags": [
+				"powerup",
+				"game.gd",
+				"pickup"
+			],
+			"timestamp": "2026-07-30T13:47:03"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "Player weapon level system: add_experience(amount) returns bool if leveled up; thresholds EXP_TO_LEVEL [5, 10, 15]; get_weapon_level() returns 1-3; get_shoot_cooldown() returns 0.15s rapid fire / 0.5s base.",
+			"tags": [
+				"player",
+				"weapon_level",
+				"experience"
+			],
+			"timestamp": "2026-07-30T13:47:03"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "Player powerup effects: apply_powerup(type_string) handles heal (GameManager.add_life), rapid_fire (5s), shield (3s), bomb (no-op handled by game.gd). is_shield_active() and is_rapid_fire_active() available.",
+			"tags": [
+				"player",
+				"powerup",
+				"shield",
+				"rapid_fire"
+			],
+			"timestamp": "2026-07-30T13:47:03"
+		}
+	]
+}

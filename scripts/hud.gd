@@ -1,6 +1,6 @@
 extends CanvasLayer
 
-## Head-up display showing score, lives, high score, current wave, kill feedback and combos.
+## Head-up display showing score, lives, high score, current wave, weapon level, kill feedback and combos.
 
 const Singleton: String = "GameManager"
 
@@ -11,6 +11,7 @@ signal resume_requested
 @onready var high_score_label: Label = %HighScoreLabel
 @onready var lives_label: Label = %LivesLabel
 @onready var wave_label: Label = %WaveLabel
+@onready var weapon_level_label: Label = %WeaponLevelLabel
 @onready var pause_overlay: Control = %PauseOverlay
 
 var _kill_count: int = 0
@@ -65,6 +66,11 @@ func _on_wave_changed(value: int) -> void:
 
 func _on_game_paused(is_paused: bool) -> void:
 	_update_pause_overlay(is_paused)
+
+
+func set_weapon_level(level: int) -> void:
+	if weapon_level_label != null:
+		weapon_level_label.text = "LVL: " + str(level)
 
 
 func _update_labels(new_score: int = -1, new_high_score: int = -1, new_lives: int = -1, new_wave: int = -1) -> void:

@@ -46,6 +46,13 @@ func add_score(amount: int) -> void:
 	high_score_changed.emit(high_score)
 
 
+func add_life(amount: int) -> void:
+	lives += amount
+	if lives > max_lives:
+		lives = max_lives
+	lives_changed.emit(lives)
+
+
 func take_life() -> void:
 	lives -= 1
 	if lives < 0:

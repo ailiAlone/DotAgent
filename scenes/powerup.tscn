@@ -1,0 +1,4 @@
+[gd_scene format=3]
+
+[node name="Powerup" type="Node2D" groups=[&"powerup"]]
+script = "res://scripts/powerup.gd"
