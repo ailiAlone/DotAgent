@@ -33,6 +33,58 @@
 				"rapid_fire"
 			],
 			"timestamp": "2026-07-30T13:47:03"
+		},
+		{
+			"category": "general",
+			"node_id": "Player",
+			"summary": "Player.gd weather effect: SLOW_EFFECT=0.5 for snow, _get_weather_multiplier() checks WeatherSystem autoload/node for get_weather() method, returns multiplier in _process",
+			"tags": [
+				"player",
+				"weather",
+				"snow",
+				"movement"
+			],
+			"timestamp": "2026-07-30T17:27:53"
+		},
+		{
+			"category": "interface",
+			"node_id": "Game",
+			"summary": "Weather system: WeatherType enum (CLEAR=0, RAIN=1, SNOW=2, FOG=3), weather_changed signal, methods: get_current_weather(), set_weather(), get_weather_effects(), randomize_weather(), get_spawn_rate_multiplier(), get_player_speed_multiplier()",
+			"tags": [
+				"weather",
+				"game-mechanics",
+				"enums"
+			],
+			"timestamp": "2026-07-30T17:29:45"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Game",
+			"summary": "Weather effects: RAIN reduces visibility to 60% (get_visibility_multiplier), SNOW reduces player speed to 70% (get_player_speed_multiplier, set via set_weather_speed_multiplier), FOG increases enemy spawn rate by 50% (get_spawn_rate_multiplier)",
+			"tags": [
+				"weather",
+				"effects",
+				"game-balance"
+			],
+			"timestamp": "2026-07-30T17:29:45"
+		},
+		{
+			"category": "interface",
+			"node_id": "Game",
+			"summary": "Player weather integration: _weather_speed_mult variable, set_weather_speed_multiplier(mult: float) method, speed calculation in _process() uses SPEED * _weather_speed_mult",
+			"tags": [
+				"player",
+				"weather",
+				"movement"
+			],
+			"timestamp": "2026-07-30T17:29:45"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "WeatherSystem autoload 需要实现: get_weather() -> String, get_spawn_multiplier() -> float",
+			"tags": [],
+			"timestamp": "2026-07-30T17:30:00"
 		}
 	]
 }

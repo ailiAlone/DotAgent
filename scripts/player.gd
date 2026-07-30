@@ -1,6 +1,7 @@
 extends Node2D
 
 const SPEED: float = 300.0
+const SLOW_EFFECT: float = 0.5  # Snow weather speed multiplier (50% speed)
 const MAX_WEAPON_LEVEL: int = 3
 const EXP_TO_LEVEL: Array[int] = [5, 10, 15]
 const BASE_SHOOT_COOLDOWN: float = 0.5
@@ -15,10 +16,26 @@ var _rapid_fire_active: bool = false
 var _rapid_fire_timer: float = 0.0
 var _shield_active: bool = false
 var _shield_timer: float = 0.0
+var _weather_speed_mult: float = 1.0  # Weather speed multiplier (set by game.gd)
 
 
 static func _gm() -> Node:
 	return Engine.get_main_loop().root.get_node_or_null("GameManager")
+
+
+func _get_weather_multiplier() -> float:
+	# Try to get weather system - check for WeatherSystem autoload or child node
+	var weather_system: Node = Engine.get_main_loop().root.get_node_or_null("WeatherSystem")
+	if weather_system == null:
+		weather_system = get_node_or_null("/root/WeatherSystem")
+	if weather_system == null:
+		weather_system = get_tree().root.find_child("WeatherSystem", false, false)
+	
+	if weather_system != null and weather_system.has_method("get_weather"):
+		var weather_type: String = weather_system.get_weather()
+		if weather_type == "snow":
+			return SLOW_EFFECT
+	return 1.0  # Default: no speed penalty
 
 
 func _process(delta: float) -> void:
@@ -35,8 +52,10 @@ func _process(delta: float) -> void:
 
 	if direction.length_squared() > 0.0:
 		direction = direction.normalized()
-
-	position += direction * SPEED * delta
+	
+	# Apply weather effect to movement speed (from game.gd weather system)
+	var effective_speed: float = SPEED * _weather_speed_mult
+	position += direction * effective_speed * delta
 
 	var viewport_size: Vector2 = get_viewport_rect().size
 	position.x = clampf(position.x, 20.0, viewport_size.x - 20.0)
@@ -104,3 +123,9 @@ func get_shoot_cooldown() -> float:
 	if _rapid_fire_active:
 		return RAPID_FIRE_SHOOT_COOLDOWN
 	return BASE_SHOOT_COOLDOWN
+
+
+## Set weather speed multiplier from weather system
+## Called by game.gd when weather changes
+func set_weather_speed_multiplier(mult: float) -> void:
+	_weather_speed_mult = clampf(mult, 0.1, 1.0)

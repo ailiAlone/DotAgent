@@ -110,6 +110,8 @@ var _completion_challenged: bool = false  # 本次运行是否已挑战过"零�
 var _nudge_count: int = 0              # 本次运行中 nudge 次数（限制 reminder 消息）
 var _recent_actions: Array = []         # 最近 6 轮的动作（"nudge"/"execute"/other）用于检测 nudge 占比
 var _knowledge_saved_count: int = 0     # 本次运行保存的知识条目数（用于 Completion Challenge 快速通道）
+var _spawn_recommended: bool = false    # (deprecated, use _spawn_rec_stage)
+var _spawn_rec_stage: int = 0           # spawn 推荐阶段: 0=未推荐, 1=首次(具体方案), 2=二次(强制提醒)
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 
@@ -143,11 +145,15 @@ func setup(pool, tool_registry, host_node: Node, logger: SessionLog = null) -> v
 
 
 ## 配置 LLM 连接参数
-func configure_llm(base_url: String, api_key: String, model: String, max_tokens: int = 4096) -> void:
+## max_tokens: 绝对 token 数。默认从 config.cfg 的 max_tokens_k * 1000 读取。
+func configure_llm(base_url: String, api_key: String, model: String, max_tokens: int = -1) -> void:
 	_base_url = base_url
 	_api_key = api_key
 	_model = model
-	_max_tokens = max_tokens
+	if max_tokens <= 0:
+		_max_tokens = ConfigManager.instance().get_max_tokens_k() * 1000
+	else:
+		_max_tokens = max_tokens
 
 
 # ============ ReAct 循环 ============
@@ -207,6 +213,8 @@ func run(ticket: Dictionary = {}) -> void:
 	_nudge_count = 0
 	_recent_actions = []
 	_knowledge_saved_count = 0
+	_spawn_recommended = false
+	_spawn_rec_stage = 0
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -249,6 +257,8 @@ func run(ticket: Dictionary = {}) -> void:
 			_round_budget = granted
 
 		var round_start_msec: int = Time.get_ticks_msec()
+		# ── 自适应 spawn 推荐：任务规模扩大时给模型一个全局视野 ──
+		_check_spawn_recommendation()
 		_set_node_state(NodeState.LLM_REQUEST)
 		var llm_ok: bool = await _do_llm_request()
 		var llm_elapsed: float = float(Time.get_ticks_msec() - round_start_msec) / 1000.0
@@ -366,6 +376,126 @@ func run(ticket: Dictionary = {}) -> void:
 
 
 # ============ ReAct 循环子步骤 ============
+
+# ============ 自适应 spawn 推荐 ============
+#
+# 核心发现：system message 被模型当背景噪音忽略，user message 被视为必须回应的请求。
+# 两个阶段都用 user message 注入，附带具体 spawn 命令模板。
+#
+# 触发条件（全部满足）：
+#   1. 当前轮次 >= 6（Stage 1）或 >= 12（Stage 2）
+#   2. 已读文件数 >= 4（领域在扩大）
+#   3. 尚无子节点（还没拆过）
+#   4. 当前是根节点（只有 Root 有权 spawn）
+
+const SPAWN_REC_ROUND_THRESHOLD := 6
+const SPAWN_REC_FILE_THRESHOLD := 4
+const SPAWN_REC_STAGE2_ROUND := 12
+
+## 每轮 LLM 请求前调用 — 检测是否应注入 spawn 推荐
+func _check_spawn_recommendation() -> void:
+	# 只有根节点才考虑 spawn（子节点不应再分裂）
+	if not parent_id.is_empty():
+		return
+	if _read_files.size() < SPAWN_REC_FILE_THRESHOLD:
+		return
+	if not _children.is_empty():
+		return
+
+	var domain_map: Dictionary = _detect_domains_dict(_read_files)
+	var active_domains: Array = []
+	for domain in domain_map:
+		if not domain_map[domain].is_empty():
+			active_domains.append(domain)
+
+	# ── 第一阶段：轮次>=6，具体 spawn 方案（user message 格式） ──
+	if _spawn_rec_stage == 0 and _round_count >= SPAWN_REC_ROUND_THRESHOLD and active_domains.size() >= 2:
+		_spawn_rec_stage = 1
+		_spawn_recommended = true
+		var msg: String = _build_spawn_plan(active_domains, domain_map)
+		_log("Spawn recommendation STAGE 1 (round=%d, files=%d, domains=%d)" % [_round_count, _read_files.size(), active_domains.size()])
+		messages.append({"role": "user", "content": msg})
+
+	# ── 第二阶段：轮次>=12 且仍无子节点，更强约束（user message） ──
+	elif _spawn_rec_stage == 1 and _round_count >= SPAWN_REC_STAGE2_ROUND and _children.is_empty():
+		_spawn_rec_stage = 2
+		var domain_list: String = ", ".join(active_domains)
+		var msg: String = "URGENT: You are on round %d with %d files across %d domains (%s) and ZERO children.\n\n" % [
+			_round_count, _read_files.size(), active_domains.size(), domain_list]
+		msg += "This is exactly the scenario spawn_child is designed for. You MUST do one of the following NOW:\n\n"
+		msg += "**Option A (preferred):** Call spawn_child for at least 2 domains:\n"
+		for i in range(active_domains.size()):
+			var d: String = active_domains[i]
+			var flist: String = ", ".join(domain_map[d])
+			msg += "  - spawn_child(name='%s', task_description='Handle %s files: %s')\n" % [d.capitalize().replace(" ", ""), d, flist]
+		msg += "  Then call wait_for_children.\n\n"
+		msg += "**Option B:** If you believe the domains are tightly coupled and CANNOT be parallelized, "
+		msg += "respond with a one-line explanation of which files have cross-dependencies that prevent parallel work.\n\n"
+		msg += "Do NOT continue modifying files alone without addressing this."
+		_log("Spawn recommendation STAGE 2 (round=%d, files=%d, domains=%d)" % [_round_count, _read_files.size(), active_domains.size()])
+		messages.append({"role": "user", "content": msg})
+
+
+## 构建具体的 spawn 方案 — 给模型一个可直接执行的模板
+func _build_spawn_plan(active_domains: Array, domain_map: Dictionary) -> String:
+	var msg: String = "## Task Decomposition Plan\n\n"
+	msg += "Progress: **%d rounds**, **%d files read**, **%d domains detected**.\n\n" % [_round_count, _read_files.size(), active_domains.size()]
+	msg += "This task spans multiple independent domains. Recommended parallel approach:\n\n"
+
+	# 为每个活跃领域生成具体建议
+	for i in range(active_domains.size()):
+		var domain: String = active_domains[i]
+		var files: Array = domain_map[domain]
+		var child_name: String = domain.capitalize().replace(" ", "")
+		msg += "### Child %d: `%s`\n" % [i + 1, child_name]
+		msg += "**Files:** %s\n" % ", ".join(files)
+		msg += "**Task:** Handle all %s-related modifications. You already know these files from the parent's analysis.\n\n" % domain
+
+	msg += "### Execution Steps\n"
+	msg += "1. Call `spawn_child` for each domain above (can batch in one round)\n"
+	msg += "2. Call `wait_for_children` to collect results\n"
+	msg += "3. Integrate results and finish\n\n"
+	msg += "**Why this helps:** Children run in parallel — a 3-domain task that takes you 30 rounds alone can finish in ~10 rounds with 3 children.\n"
+	return msg
+
+
+## 从文件路径列表推断领域分组，返回 domain→files 映射
+func _detect_domains_dict(files: Array) -> Dictionary:
+	var domain_map: Dictionary = {
+		"player": [], "enemy": [], "boss": [],
+		"bullet": [], "weapon": [], "powerup": [],
+		"ui": [], "menu": [],
+		"game": [], "audio": [],
+		"config": [], "manager": [],
+	}
+	var domain_keywords: Dictionary = {
+		"player": ["player", "character", "hero"],
+		"enemy": ["enemy", "mob", "foe"],
+		"boss": ["boss"],
+		"bullet": ["bullet", "projectile", "shot"],
+		"weapon": ["weapon", "gun", "cannon"],
+		"powerup": ["powerup", "pickup", "item"],
+		"ui": ["hud", "label", "button", "panel", "canvas"],
+		"menu": ["menu", "game_over", "title", "pause"],
+		"game": ["game", "wave", "level", "stage"],
+		"audio": ["audio", "sound", "music", "sfx", "bgm"],
+		"config": ["config", "settings", "save", "data"],
+		"manager": ["manager", "controller", "system"],
+	}
+
+	for f in files:
+		var fname: String = f.get_file().to_lower()
+		var matched: bool = false
+		for domain in domain_keywords:
+			for kw in domain_keywords[domain]:
+				if kw in fname:
+					domain_map[domain].append(f)
+					matched = true
+					break
+			if matched:
+				break
+	return domain_map
+
 
 ## 分析 LLM 最新回复，返回应采取的动作（纯决策，不操作消息）
 func _analyze_response(nudged: bool, redirected: bool, total_tool_calls: int) -> String:
@@ -711,13 +841,13 @@ func _do_llm_request() -> bool:
 	builder.setup(messages, _logger)
 	var send_msgs: Array = builder.build()
 
-	var url_info: Dictionary = Pool.parse_url(_base_url)
-	var endpoint: String = url_info.path
-	if not endpoint.ends_with("/chat/completions"):
-		endpoint = endpoint.trim_suffix("/") + "/chat/completions"
+	# 根据 URL 自动检测 provider 格式（OpenAI / Anthropic / Ollama）
+	var provider: LLMProvider = ProviderFactory.create_for_url(_base_url, _api_key)
+	var url_info: Dictionary = Pool.parse_url(provider.get_base_url())
+	var endpoint: String = Pool.get_endpoint_with_provider(provider)
 
-	var body: String = Pool.build_request_body(_model, send_msgs, tool_definitions, true, _max_tokens)
-	var headers: PackedStringArray = Pool.build_headers(_api_key)
+	var body: String = Pool.build_request_body_with_provider(provider, _model, send_msgs, tool_definitions, true, _max_tokens)
+	var headers: PackedStringArray = Pool.build_headers_with_provider(provider)
 
 	_log("POST %s model=%s msgs=%d tools=%d" % [url_info.host + endpoint, _model, send_msgs.size(), tool_definitions.size()])
 

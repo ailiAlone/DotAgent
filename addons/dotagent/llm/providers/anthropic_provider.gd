@@ -91,6 +91,7 @@ func get_auth_headers() -> PackedStringArray:
 	return _with_default_headers([
 		"x-api-key: " + _api_key,
 		"anthropic-version: " + ANTHROPIC_VERSION,
+		"Accept: text/event-stream",
 	])
 
 

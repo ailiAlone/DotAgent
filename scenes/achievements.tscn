@@ -1,0 +1,67 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/achievements_view.gd" id="1"]
+
+[node name="AchievementsView" type="Control" script="ExtResource( 1 )"]
+layout_direction = 1
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Background" type="ColorRect" parent="."]
+layout_direction = 1
+layout_mode = 1
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.1, 0.1, 0.1, 1)
+
+[node name="TitleContainer" type="VBoxContainer" parent="."]
+layout_direction = 1
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 20.0
+grow_horizontal = 2
+
+[node name="TitleLabel" type="Label" parent="TitleContainer"]
+layout_direction = 1
+layout_mode = 2
+text = "ACHIEVEMENTS"
+horizontal_alignment = 1
+
+[node name="ProgressLabel" type="Label" parent="TitleContainer"]
+layout_direction = 1
+layout_mode = 2
+text = "0/0 Unlocked"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="."]
+layout_direction = 1
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = 80.0
+offset_bottom = -80.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="AchievementsList" type="VBoxContainer" parent="ScrollContainer"]
+layout_direction = 1
+layout_mode = 2
+
+[node name="BackButton" type="Button" parent="."]
+layout_direction = 1
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -70.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "Back"

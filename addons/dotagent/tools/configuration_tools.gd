@@ -157,11 +157,11 @@ func _tool_build_scene(args: Dictionary) -> Dictionary:
 	if FileAccess.file_exists(path):
 		return _err("Scene already exists: " + path + ". Use patch_scene to modify.")
 
-	var root_def: Dictionary = args.get("root", {})
-	var children_defs: Array = args.get("children", [])
-	var sub_resources_defs: Array = args.get("sub_resources", [])
-	var scripts_defs: Array = args.get("scripts", [])
-	var unique_names: Array = args.get("unique_names", [])
+	var root_def: Dictionary = args.get("root", {}) if args.get("root") is Dictionary else {}
+	var children_defs: Array = args.get("children", []) if args.get("children") is Array else []
+	var sub_resources_defs: Array = args.get("sub_resources", []) if args.get("sub_resources") is Array else []
+	var scripts_defs: Array = args.get("scripts", []) if args.get("scripts") is Array else []
+	var unique_names: Array = args.get("unique_names", []) if args.get("unique_names") is Array else []
 	var open_in_editor: bool = args.get("open_in_editor", true)
 
 	# Phase 1: Create scripts first (scenes may reference them)
@@ -336,7 +336,8 @@ func _tool_patch_scene(args: Dictionary) -> Dictionary:
 	if not FileAccess.file_exists(path):
 		return _err("Scene not found: " + path)
 
-	var operations: Array = args.get("operations", [])
+	var operations_raw = args.get("operations", [])
+	var operations: Array = operations_raw if operations_raw is Array else []
 	if operations.is_empty():
 		return _err("No operations provided")
 

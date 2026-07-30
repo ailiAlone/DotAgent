@@ -4,6 +4,7 @@
 
 # DotAgent: sensitive / generated
 addons/dotagent/config.cfg
+addons/dotagent/banyan_agent/sessions/
 .dotagent_backups/
 .dotagent_screenshots/
 addons/dotagent/logs/

@@ -55,6 +55,29 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "LVL: 1"
 
+[node name="WeatherIconLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "☀️"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="BossHealthContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 0
+
+[node name="BossHealthLabel" type="Label" parent="MarginContainer/VBoxContainer/BossHealthContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "BOSS HP: 0/0"
+horizontal_alignment = 1
+
+[node name="BossHealthBar" type="ProgressBar" parent="MarginContainer/VBoxContainer/BossHealthContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+
 [node name="PauseOverlay" type="Control" parent="MarginContainer"]
 unique_name_in_owner = true
 visible = false
@@ -117,21 +140,3 @@ text = "RESTART"
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "QUIT"
-
-[node name="BossHealthContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_vertical = 0
-
-[node name="BossHealthLabel" type="Label" parent="MarginContainer/VBoxContainer/BossHealthContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "BOSS HP: 0/0"
-horizontal_alignment = 1
-
-[node name="BossHealthBar" type="ProgressBar" parent="MarginContainer/VBoxContainer/BossHealthContainer"]
-unique_name_in_owner = true
-layout_mode = 2
-max_value = 100.0
-value = 0.0

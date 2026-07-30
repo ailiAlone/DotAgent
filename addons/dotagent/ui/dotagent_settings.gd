@@ -34,13 +34,11 @@ signal reset_requested
 
 const CONFIG_PATH: String = "res://addons/dotagent/config.cfg"
 
-const PROVIDER_URLS: Dictionary = {
-	"OpenAI": "https://api.openai.com/v1",
-	"Anthropic": "https://api.anthropic.com/v1",
-	"Kimi For Coding": "https://api.kimi.com/coding/v1",
-}
-
-const PROVIDERS: Array = ["OpenAI", "Anthropic", "Kimi For Coding", "Custom"]
+## 动态提供商列表（从 models.dev 缓存加载）
+## 格式: [{"key": str, "name": str, "url": str, "format": str, "count": int}, ...]
+## 末尾追加 "Custom" 条目，允许用户手动输入 URL。
+var _providers: Array = []
+var _model_fetcher: ModelFetcher = null
 
 const MODE_LEGACY: String = "legacy"
 const MODE_BANYAN: String = "banyan"
@@ -61,11 +59,23 @@ var _current_mode: String = MODE_BANYAN
 
 func _ready() -> void:
 	_config = ConfigManager.instance()
+	_model_fetcher = ModelFetcher.new()
 
-	# 填充 Provider 下拉
-	provider_option.clear()
-	for p in PROVIDERS:
-		provider_option.add_item(p)
+	# 从 models.dev 缓存动态加载提供商列表
+	_providers = _model_fetcher.get_providers()
+	# 末尾追加 Custom 条目（url 为空，允许用户手动输入）
+	_providers.append({"key": "custom", "name": "Custom", "url": "", "format": "openai", "count": 0})
+
+	# 如果缓存为空，尝试在线刷新数据库后再填充
+	if _providers.size() <= 1:
+		_model_fetcher.refresh_database(self, func(success: bool, message: String):
+			if success:
+				_providers = _model_fetcher.get_providers()
+				_providers.append({"key": "custom", "name": "Custom", "url": "", "format": "openai", "count": 0})
+			_populate_provider_dropdown()
+		)
+	else:
+		_populate_provider_dropdown()
 
 	# 填充模式下拉
 	mode_option.clear()
@@ -94,6 +104,18 @@ func _ready() -> void:
 	confirmed.connect(_save)
 
 
+## 用动态加载的 _providers 列表填充 Provider 下拉框
+func _populate_provider_dropdown() -> void:
+	provider_option.clear()
+	for p in _providers:
+		var name: String = str(p.get("name", ""))
+		var count: int = int(p.get("count", 0))
+		if count > 0:
+			provider_option.add_item("%s (%d)" % [name, count])
+		else:
+			provider_option.add_item(name)
+
+
 # ============ 加载 ============
 
 func _load_values() -> void:
@@ -109,14 +131,14 @@ func _load_values() -> void:
 	# Provider — 按保存的 base URL 匹配
 	var current_url: String = _config.get_base_url().strip_edges().trim_suffix("/")
 	var matched: bool = false
-	for i in range(PROVIDERS.size()):
-		var url: String = PROVIDER_URLS.get(PROVIDERS[i], "")
+	for i in range(_providers.size()):
+		var url: String = str(_providers[i].get("url", ""))
 		if not url.is_empty() and url.strip_edges().trim_suffix("/") == current_url:
 			provider_option.select(i)
 			matched = true
 			break
 	if not matched:
-		provider_option.select(PROVIDERS.size() - 1)
+		provider_option.select(_providers.size() - 1)
 
 	# URL
 	url_input.text = _config.get_base_url()
@@ -155,8 +177,8 @@ func _save() -> void:
 	# 确定 provider 名称
 	var provider_idx: int = provider_option.selected
 	var provider_name: String = "Custom"
-	if provider_idx >= 0 and provider_idx < PROVIDERS.size():
-		provider_name = PROVIDERS[provider_idx]
+	if provider_idx >= 0 and provider_idx < _providers.size():
+		provider_name = str(_providers[provider_idx].get("name", "Custom"))
 
 	var proxy_host_val: String = proxy_host.text.strip_edges() if proxy_check.button_pressed else ""
 	var proxy_port_val: int = int(proxy_port.value) if proxy_check.button_pressed and proxy_port.value > 0 else -1
@@ -238,10 +260,10 @@ func get_agent_mode() -> String:
 # ============ Provider 选择 ============
 
 func _on_provider_selected(idx: int) -> void:
-	if idx < 0 or idx >= PROVIDERS.size():
+	if idx < 0 or idx >= _providers.size():
 		return
-	var provider_name: String = PROVIDERS[idx]
-	var url: String = PROVIDER_URLS.get(provider_name, "")
+	var provider: Dictionary = _providers[idx]
+	var url: String = str(provider.get("url", ""))
 	if not url.is_empty():
 		url_input.text = url
 		url_input.editable = false

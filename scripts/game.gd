@@ -1,6 +1,6 @@
 extends Node2D
 
-## Main game scene: manages the player, HUD, bullets, enemies, spawns, waves, powerups, and polish effects.
+## Main game scene: manages the player, HUD, bullets, enemies, spawns, waves, powerups, weather, and polish effects.
 
 const Singleton: String = "GameManager"
 const SPAWN_INTERVAL: float = 2.0
@@ -20,6 +20,7 @@ const BOSS_BULLET_DAMAGE: int = 1
 @onready var powerup_scene: PackedScene = preload("res://scenes/powerup.tscn")
 @onready var boss_scene: PackedScene = preload("res://scenes/boss.tscn")
 @onready var boss_bullet_scene: PackedScene = preload("res://scenes/boss_bullet.tscn")
+@onready var weather_particles_scene: PackedScene = preload("res://scenes/weather_particles.tscn")
 
 var _spawn_timer: float = 0.0
 var _wave_timer: float = 0.0
@@ -27,6 +28,8 @@ var _shoot_timer: float = 0.0
 var _game_over_active: bool = false
 var _boss_active: bool = false
 var _current_boss: Node2D = null
+var _weather_manager: Node = null
+var _weather_particles: Node2D = null
 
 
 func _ready() -> void:
@@ -35,6 +38,10 @@ func _ready() -> void:
 		gm.reset()
 		gm.game_paused.connect(_on_game_paused)
 		gm.lives_changed.connect(_on_lives_changed)
+	
+	# Initialize weather system
+	_setup_weather()
+	
 	var hud_instance: CanvasLayer = hud_scene.instantiate() as CanvasLayer
 	if hud_instance != null:
 		hud_instance.name = "HUD"
@@ -59,12 +66,104 @@ func _input(event: InputEvent) -> void:
 			gm.toggle_pause()
 
 
+func _setup_weather() -> void:
+	# Create weather manager node
+	_weather_manager = Node.new()
+	_weather_manager.set_script(load("res://scripts/weather.gd"))
+	_weather_manager.name = "WeatherManager"
+	add_child(_weather_manager)
+	
+	# Create and add weather particles
+	if weather_particles_scene != null:
+		_weather_particles = weather_particles_scene.instantiate() as Node2D
+		if _weather_particles != null:
+			_weather_particles.name = "WeatherParticles"
+			add_child(_weather_particles)
+			# Connect weather particles to weather manager
+			_update_weather_particles()
+	
+	# Connect to weather manager signals
+	if _weather_manager.has_signal("weather_changed"):
+		_weather_manager.weather_changed.connect(_on_weather_changed)
+	
+	# Start with clear weather
+	if _weather_manager.has_method("set_weather"):
+		_weather_manager.set_weather(0)
+
+
+func _on_weather_changed(weather_type: int) -> void:
+	print("Weather changed in game: ", weather_type)
+	_update_weather_particles()
+	_apply_weather_to_player()
+
+
+func _update_weather_particles() -> void:
+	if _weather_particles == null:
+		return
+	
+	# Hide all particle systems first
+	for child: Node in _weather_particles.get_children():
+		if child is CPUParticles2D or child is ColorRect:
+			child.visible = false
+	
+	# Show appropriate particle system based on weather
+	if _weather_manager == null or not _weather_manager.has_method("get_current_weather"):
+		return
+	
+	var current_weather: int = _weather_manager.get_current_weather() as int
+	
+	match current_weather:
+		1:  # RAIN
+			if _weather_particles.has_node("Rain"):
+				(_weather_particles.get_node("Rain") as Node).visible = true
+		2:  # SNOW
+			if _weather_particles.has_node("Snow"):
+				(_weather_particles.get_node("Snow") as Node).visible = true
+		3:  # FOG
+			if _weather_particles.has_node("Fog"):
+				(_weather_particles.get_node("Fog") as Node).visible = true
+
+
+func _apply_weather_to_player() -> void:
+	if _weather_manager == null or not _weather_manager.has_method("get_weather_effects"):
+		return
+	
+	var effects: Dictionary = _weather_manager.get_weather_effects() as Dictionary
+	var player: Node2D = $Player as Node2D
+	
+	if player != null and player.has_method("set_weather_speed_multiplier"):
+		var speed_mult: float = effects.get("speed_mult", 1.0) as float
+		player.set_weather_speed_multiplier(speed_mult)
+
+
+func _get_weather_spawn_rate() -> float:
+	if _weather_manager != null and _weather_manager.has_method("get_spawn_rate_multiplier"):
+		return _weather_manager.get_spawn_rate_multiplier() as float
+	return 1.0
+
+
+func _get_weather_speed_multiplier() -> float:
+	if _weather_manager != null and _weather_manager.has_method("get_player_speed_multiplier"):
+		return _weather_manager.get_player_speed_multiplier() as float
+	return 1.0
+
+
+func _get_weather_visibility() -> float:
+	if _weather_manager != null and _weather_manager.has_method("get_visibility_multiplier"):
+		return _weather_manager.get_visibility_multiplier() as float
+	return 1.0
+
+
 func _on_game_paused(is_paused: bool) -> void:
 	print("Game paused: ", is_paused)
 
 
 func _on_lives_changed(value: int) -> void:
 	if value <= 0 and not _game_over_active:
+		# Record remaining lives for achievements before game over
+		var gm: Node = _gm()
+		if gm != null and gm.has_method("record_lives_remaining"):
+			gm.record_lives_remaining(value)
 		_show_game_over()
 
 
@@ -134,7 +233,12 @@ func _handle_spawning(delta: float) -> void:
 		return
 
 	_spawn_timer += delta
-	if _spawn_timer >= SPAWN_INTERVAL:
+	
+	# Apply weather effect to spawn rate
+	var spawn_rate_mult: float = _get_weather_spawn_rate()
+	var effective_interval: float = SPAWN_INTERVAL / spawn_rate_mult
+	
+	if _spawn_timer >= effective_interval:
 		_spawn_timer = 0.0
 		_spawn_enemy()
 
@@ -168,6 +272,14 @@ func _handle_waves(delta: float) -> void:
 	if _wave_timer >= WAVE_INTERVAL:
 		_wave_timer = 0.0
 		gm.next_wave()
+		
+		# Randomize weather when wave changes
+		_change_weather_on_wave_change()
+
+
+func _change_weather_on_wave_change() -> void:
+	if _weather_manager != null and _weather_manager.has_method("randomize_weather"):
+		_weather_manager.randomize_weather()
 
 
 func _handle_collisions() -> void:
@@ -221,9 +333,17 @@ func _add_player_experience() -> void:
 	var player: Node2D = $Player as Node2D
 	if player == null or not player.has_method("add_experience"):
 		return
+	var old_level: int = 1
+	if player.has_method("get_weapon_level"):
+		old_level = player.get_weapon_level() as int
 	var leveled_up: bool = player.add_experience(1) as bool
 	if leveled_up:
 		_update_weapon_level_hud()
+		# Record weapon level for achievements
+		var new_level: int = player.get_weapon_level() as int
+		var gm: Node = _gm()
+		if gm != null and gm.has_method("record_weapon_level"):
+			gm.record_weapon_level(new_level)
 
 
 func _try_spawn_powerup(position: Vector2) -> void:
@@ -265,6 +385,10 @@ func _collect_powerup(powerup: Node2D, player: Node2D) -> void:
 	else:
 		if player.has_method("apply_powerup"):
 			player.apply_powerup(type_string)
+	# Record powerup collection for achievements
+	var gm: Node = _gm()
+	if gm != null and gm.has_method("record_powerup_collected"):
+		gm.record_powerup_collected()
 	powerup.queue_free()
 
 

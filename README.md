@@ -14,7 +14,13 @@
 
 直接在 Godot 编辑器内部运行的 AI 开发助手。支持 OpenAI 兼容 API（DeepSeek / MiniMax / Ollama / Moonshot 等），58+ 工具完整权限——场景搭建、脚本编写、截图分析、运行验证，全在编辑器内完成闭环。
 
-## 🚀 快速开始
+## � 下载说明 / Download
+
+> ⚠️ **`main` 分支包含正在开发中的代码，可能无法稳定运行。**
+> 普通用户请从 [Releases](../../releases) 或 [Tags](../../tags) 下载打包好的稳定版本，**不要**直接克隆或下载 `main` 分支的最新源码。
+> The `main` branch contains work-in-progress code. For stable use, download from [Releases](../../releases) or [Tags](../../tags) instead of cloning the latest source.
+
+## �🚀 快速开始
 
 **1. 安装**：将 `addons/dotagent/` 文件夹复制到你 Godot 项目根目录的 `addons/` 下。
 
@@ -120,7 +126,12 @@ MIT
 
 直接在 Godot 编辑器内部运行的 AI 开发助手。支持 OpenAI 兼容 API（DeepSeek / MiniMax / Ollama / Moonshot 等），58+ 工具完整权限——场景搭建、脚本编写、截图分析、运行验证，全在编辑器内完成闭环。
 
-## 🚀 快速开始
+## � 下载说明
+
+> ⚠️ **`main` 分支包含正在开发中的代码，可能无法稳定运行。**
+> 普通用户请从 [Releases](../../releases) 或 [Tags](../../tags) 下载打包好的稳定版本，**不要**直接克隆或下载 `main` 分支的最新源码。
+
+## �🚀 快速开始
 
 **1. 安装**：将 `addons/dotagent/` 文件夹复制到 Godot 项目根目录的 `addons/` 下。
 

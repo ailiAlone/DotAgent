@@ -220,3 +220,46 @@ static func build_headers(api_key: String) -> PackedStringArray:
 		"Authorization: Bearer %s" % api_key,
 		"Accept: text/event-stream",
 	])
+
+
+# ============ Provider-aware 请求构建 ============
+
+## 通过 provider 构建完整的请求端点路径（含 base URL 中的 path 部分 + chat endpoint）
+## 返回: 完整路径，如 "/v1/chat/completions" 或 "/v1/messages" 或 "/anthropic/v1/messages"
+static func get_endpoint_with_provider(provider: LLMProvider) -> String:
+	var base: String = provider.get_base_url().strip_edges().trim_suffix("/")
+	var chat_ep: String = provider.get_chat_endpoint()
+	# base 可能已含路径前缀，如 "https://api.minimaxi.com/anthropic/v1"
+	var url_info: Dictionary = parse_url(base)
+	var base_path: String = url_info.path
+	if base_path == "/":
+		base_path = ""
+
+	# 智能拼接：如果 chat endpoint 是绝对路径（以 / 开头），
+	# 检查 base_path 是否已包含 chat_ep 的前缀部分，避免重复
+	# 例: base_path="/anthropic/v1", chat_ep="/v1/messages" → "/anthropic/v1/messages"
+	if chat_ep.begins_with("/") and not base_path.is_empty():
+		# 提取 chat_ep 的第一段路径（如 /v1/messages → /v1）
+		var chat_first_segment: String = ""
+		var second_slash: int = chat_ep.find("/", 1)
+		if second_slash > 0:
+			chat_first_segment = chat_ep.substr(0, second_slash)
+		else:
+			chat_first_segment = chat_ep
+		# 如果 base_path 已以此段结尾，只取 chat_ep 的剩余部分
+		if base_path.ends_with(chat_first_segment):
+			var remaining: String = chat_ep.substr(chat_first_segment.length())
+			return base_path + remaining
+
+	return base_path + chat_ep
+
+
+## 通过 provider 构建请求 body（处理不同格式的 messages/tools 结构）
+static func build_request_body_with_provider(provider: LLMProvider, model: String, messages: Array, tools: Array, stream: bool, max_tokens: int = 4096) -> String:
+	var result: Dictionary = provider.build_request_body(model, messages, tools, stream, max_tokens)
+	return str(result.get("body", ""))
+
+
+## 通过 provider 构建认证 headers
+static func build_headers_with_provider(provider: LLMProvider) -> PackedStringArray:
+	return provider.get_auth_headers()

@@ -10,7 +10,7 @@ const MOVE_SPEED: float = 60.0
 const DAMAGE: int = 3
 
 @export var max_health: int = 300
-@export var score_value: int = 1000
+@export var score_value: int = 500
 @export var size: float = 50.0
 
 var _health: int = max_health
@@ -151,8 +151,13 @@ func take_damage(damage: int) -> void:
 func _die() -> void:
 	_dead = true
 	var gm: Node = get_parent()
-	if gm != null and gm.has_method("on_boss_died"):
-		gm.on_boss_died(self, position)
+	if gm != null:
+		if gm.has_method("on_boss_died"):
+			gm.on_boss_died(self, position)
+		if gm.has_method("add_score"):
+			gm.add_score(score_value)
+		if gm.has_method("record_enemy_killed"):
+			gm.record_enemy_killed(true)
 	queue_free()
 
 

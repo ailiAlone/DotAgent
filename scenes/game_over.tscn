@@ -63,3 +63,34 @@ text = "RESTART"
 layout_mode = 2
 theme_override_font_sizes/font_size = 32
 text = "MAIN MENU"
+
+[node name="SubmitPanel" type="Panel" parent="VBoxContainer"]
+visible = false
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/SubmitPanel"]
+layout_mode = 1
+theme_override_constants/separation = 12
+
+[node name="NameLineEdit" type="LineEdit" parent="VBoxContainer/SubmitPanel/VBoxContainer"]
+layout_mode = 2
+placeholder_text = "Enter your name"
+
+[node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer/SubmitPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="SubmitButton" type="Button" parent="VBoxContainer/SubmitPanel/VBoxContainer/ButtonRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "SUBMIT"
+
+[node name="SkipButton" type="Button" parent="VBoxContainer/SubmitPanel/VBoxContainer/ButtonRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "SKIP"
+
+[node name="LeaderboardButton" type="Button" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "VIEW LEADERBOARD"

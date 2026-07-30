@@ -4,7 +4,7 @@ extends Node2D
 
 const SPEED: float = 150.0
 const SIZE: float = 20.0
-const SCORE_VALUE: int = 10
+const SCORE_VALUE: int = 100
 const DAMAGE: int = 1
 const OFFSCREEN_MARGIN: float = 40.0
 
@@ -36,6 +36,8 @@ func take_hit() -> void:
 	var gm: Node = _gm()
 	if gm != null:
 		gm.add_score(SCORE_VALUE)
+		if gm.has_method("record_enemy_killed"):
+			gm.record_enemy_killed(false)
 	queue_free()
 
 
