@@ -1,6 +1,0 @@
-[gd_scene format=3]
-
-[node name="Bullet" type="Area2D"]
-script = "res://scripts/bullet.gd"
-
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]

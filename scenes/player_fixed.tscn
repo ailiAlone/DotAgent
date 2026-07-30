@@ -1,6 +1,0 @@
-[gd_scene format=3]
-
-[node name="Player" type="CharacterBody2D"]
-script = "res://scripts/player.gd"
-
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
