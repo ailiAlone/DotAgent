@@ -1068,13 +1068,26 @@ func _handle_wait_for_children(args: Dictionary) -> Dictionary:
 		if not _pending_children[cname]:
 			pending.append(cname)
 
-	return {"ok": true, "content": JSON.stringify({
+	# 检测空总结的子节点 — 提示父节点路由补充任务而非自己重做
+	var empty_summary: Array = []
+	for cname in completed:
+		var report: Dictionary = reports.get(cname, {})
+		var summary: String = str(report.get("summary", ""))
+		if summary.is_empty() or summary.length() < 20:
+			empty_summary.append(cname)
+
+	var result_data: Dictionary = {
 		"waited_for": target if not target.is_empty() else "ALL",
 		"completed": completed,
 		"pending": pending,
 		"timed_out": elapsed >= timeout and not pending.is_empty(),
 		"reports": reports,
-	})}
+	}
+	if not empty_summary.is_empty():
+		result_data["empty_summary_children"] = empty_summary
+		result_data["action_needed"] = "These children finished but produced no summary. Use route_to_child to ask each one for a structured summary of their domain."
+
+	return {"ok": true, "content": JSON.stringify(result_data)}
 
 
 func _handle_list_children(_args: Dictionary) -> Dictionary:

@@ -101,6 +101,24 @@ Each child grows the tree. The tree is the agent.
 - **Verify before finishing.** Run `check_script_syntax` after script changes; confirm created files actually exist and contain what you intended.
 - **Pure questions or analysis requests are the only exception.** If the user only wants to understand something, say so explicitly and deliver your findings as the final message — no changes needed.
 
+## GDScript 4.5 Typing Rules (MANDATORY)
+
+All scripts MUST follow Godot 4.5 strict typing. **Every compilation failure costs a full round.** Follow these rules:
+
+1. **All variables need explicit type**: `var x: int = 0`, `var name: String = ""`, `var items: Array = []`. NEVER use `var x = 0` (inferred types fail validation).
+2. **Function params need types**: `func move(speed: float, dir: Vector2) -> void:`. Return type is required: `-> void`, `-> int`, `-> bool`, `-> String`.
+3. **For loops need typed iterator**: `for i: int in range(10):`, `for item: String in list:`.
+4. **Signals need typed params**: `signal hit(damage: int)`, `signal died()`.
+5. **Accessing autoloads in headless mode**: NEVER reference autoloads directly (`GameManager.score`). Use a static helper:
+   ```gdscript
+   static func _gm():
+   	return Engine.get_main_loop().root.get_node_or_null("GameManager")
+   ```
+   Then call `_gm().score` instead of `GameManager.score`.
+6. **@export needs type**: `@export var speed: float = 300.0`, not `@export var speed = 300.0`.
+7. **No `:=` shorthand**: Use `var x: int = 5`, never `var x := 5`.
+8. **Class-level vars before functions**: Declare all `var` and `signal` at class top, before any `func`.
+
 ## Rules
 
 - **Discover first.** Call `list_files` before reading files blindly. Know what exists before diving in.
@@ -111,6 +129,7 @@ Each child grows the tree. The tree is the agent.
 - **Don't re-read what you already know.** If you already read a file, use what you learned instead of reading it again.
 - **Claim your files.** After you have explored and understood your domain, call `claim_files` with the paths you are responsible for. This is how you declare ownership — it's a conscious decision, not automatic. Do it once you know what belongs to you.
 - **If a tool fails, do not retry the same call.** Try a different approach or move on.
+- **Never create `*_fixed` files.** If `build_scene` fails because a scene already exists, use `patch_scene` or `replace_in_file` to fix it in place. If `build_script` fails, fix the errors and retry with the SAME path. Never create `enemy_fixed.tscn` or similar — delete or overwrite the broken file.
 - **Never use `class_name` on autoload scripts.** If a script will be registered as an autoload singleton, do NOT add `class_name` — Godot rejects `class_name` that shadows an autoload name. Just use `extends Node` (or the appropriate base class).
 - **Batch tool calls — never one tool per round.** If you need to save 5 knowledge entries, call `save_knowledge` 5 times in a SINGLE tool_calls response. If you need to inspect 6 scenes, call `inspect_scene_structured` 6 times in one round. Spreading single-tool calls across multiple rounds wastes LLM round-trip time and is strictly forbidden.
 - **Use `read_multiple_files` instead of individual `read_script` calls** when you need to read 2 or more files at once.
