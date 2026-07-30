@@ -272,13 +272,18 @@ func _tool_build_script(args: Dictionary) -> Dictionary:
 		gs.source_code = content
 		var err := gs.reload()
 		if err != OK:
-			# 显示最后 30 行而非截断前 500 字符，让 LLM 能看到实际出错位置
+			# Fast path failed — use subprocess for detailed errors
+			var detail := _validate_script_with_hints(content, path)
 			var all_lines: PackedStringArray = content.split("\n")
 			var start_line: int = maxi(0, all_lines.size() - 30)
 			var tail: String = ""
 			for i in range(start_line, all_lines.size()):
 				tail += "%d: %s\n" % [i + 1, all_lines[i]]
-			return _err("Syntax validation failed (last %d lines):\n%s" % [all_lines.size() - start_line, tail])
+			var msg: String = "Syntax validation failed (%d lines total).\n" % all_lines.size()
+			if not detail.is_empty():
+				msg += "Errors:\n%s\n" % detail
+			msg += "Last %d lines:\n%s" % [all_lines.size() - start_line, tail]
+			return _err(msg)
 
 	# Save
 	_ensure_dir(path)
@@ -323,7 +328,12 @@ func _tool_update_script(args: Dictionary) -> Dictionary:
 		gs.source_code = content
 		var err := gs.reload()
 		if err != OK:
-			return _err("Syntax validation failed — file not modified")
+			var detail := _validate_script_with_hints(content, path)
+			var msg: String = "Syntax validation failed — file not modified.\n"
+			if not detail.is_empty():
+				msg += "Errors:\n%s\n" % detail
+			msg += "Hint: Common causes — undeclared variables (add 'var x: Type'), missing colons after func/if/for, wrong indentation, autoload access (use static func _gm() pattern)."
+			return _err(msg)
 
 	# Backup existing file
 	if FileAccess.file_exists(path):
@@ -348,6 +358,60 @@ func _tool_update_script(args: Dictionary) -> Dictionary:
 
 
 # ============ Helpers ============
+
+## 语法验证增强：写入临时文件 → subprocess 编译 → 提取错误 + 添加修复提示
+## 解决 GDScript.new().reload() 不返回具体错误信息的问题
+func _validate_script_with_hints(content: String, path: String) -> String:
+	# 写入临时文件用于 subprocess 检查
+	var tmp_path: String = "user://_tmp_validate_%d.gd" % (Time.get_ticks_msec() % 100000)
+	var f: FileAccess = FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f == null:
+		return ""
+	f.store_string(content)
+	f.close()
+
+	# 使用 subprocess 获取详细编译错误
+	var detail: String = _subprocess_compile_check(tmp_path)
+
+	# 清理临时文件
+	DirAccess.remove_absolute(tmp_path)
+
+	if detail.is_empty() or detail == "__UNAVAILABLE__":
+		return ""
+
+	# 根据错误模式添加修复提示
+	var hints: Array = []
+	var lines: Array = detail.split("\n")
+	for line in lines:
+		var ll: String = line.to_lower()
+		if ll.contains("not declared in the current scope") or ll.contains("identifier") and ll.contains("not found"):
+			if not hints.has("undeclared_var"):
+				hints.append("undeclared_var")
+		if ll.contains("expected") and (ll.contains("indent") or ll.contains("dedent") or ll.contains("colon")):
+			if not hints.has("indent_colon"):
+				hints.append("indent_colon")
+		if ll.contains("autoload") or (ll.contains("identifier") and _is_autoload_error(line)):
+			if not hints.has("autoload"):
+				hints.append("autoload")
+
+	var hint_text: String = ""
+	if hints.has("undeclared_var"):
+		hint_text += "\n[FIX] Undeclared variable: add 'var name: Type = default' at class level, or ensure the variable is defined before use."
+	if hints.has("indent_colon"):
+		hint_text += "\n[FIX] Indentation/syntax: check that func/if/for/while/match lines end with ':', and body is indented with tabs."
+	if hints.has("autoload"):
+		hint_text += "\n[FIX] Autoload access in headless mode: use 'static func _gm(): return Engine.get_main_loop().root.get_node_or_null(\"GameManager\")' pattern instead of direct references."
+
+	return detail + hint_text
+
+
+## 检查错误行是否涉及 autoload 引用
+func _is_autoload_error(line: String) -> bool:
+	var autoload_names: Array = _get_autoload_names()
+	for aname in autoload_names:
+		if line.contains(aname):
+			return true
+	return false
 
 func _format_value(val: Variant) -> String:
 	if val is String:
