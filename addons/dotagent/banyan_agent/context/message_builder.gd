@@ -44,6 +44,10 @@ func build() -> Array:
 	var trimmed_count: int = 0
 	if other_msgs.size() > MAX_MESSAGES:
 		trimmed_count = other_msgs.size() - MAX_MESSAGES
+		# 防止切断 assistant+tool 配对：如果切点落在 tool 消息上，
+		# 向后推进到下一个非 tool 消息，避免孤立的 tool_call_id 导致 HTTP 400
+		while trimmed_count < other_msgs.size() and other_msgs[trimmed_count].get("role", "") == "tool":
+			trimmed_count += 1
 		# 统计旧消息中的工具调用
 		var old_tool_counts: Dictionary = {}
 		for i in range(trimmed_count):

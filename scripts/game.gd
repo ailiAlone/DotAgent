@@ -1,5 +1,7 @@
 extends Node2D
 
+const ParticleManager = preload("res://scripts/particle_manager.gd")
+
 static func _gm():
 	return Engine.get_main_loop().root.get_node_or_null("GameManager")
 
@@ -22,6 +24,8 @@ static func _sm():
 @onready var wave_label: Label = $WaveAnnounce
 # 统一 UI_Layer CanvasLayer 承载全部 UI（HUD / PauseMenu）
 @onready var pause_menu: Control = $UI_Layer/PauseMenu
+@onready var shop_ui: Control = null
+@onready var crafting_ui: Control = null
 @onready var asteroid_timer: Timer = $AsteroidTimer
 @onready var asteroids: Node2D = $Asteroids
 
@@ -119,6 +123,10 @@ func _ready():
 	powerup_timer.timeout.connect(_on_powerup_timer_timeout)
 	wave_timer.timeout.connect(_on_wave_timer_timeout)
 	asteroid_timer.timeout.connect(_on_asteroid_timer_timeout)
+	shop_ui = preload("res://scenes/shop_ui.tscn").instantiate()
+	$UI_Layer.add_child(shop_ui)
+	crafting_ui = preload("res://scenes/crafting_ui.tscn").instantiate()
+	$UI_Layer.add_child(crafting_ui)
 	spawn_timer.start()
 	powerup_timer.start()
 	wave_timer.start()
@@ -134,10 +142,20 @@ func _process(_delta):
 		return
 	if not game_over and Input.is_action_just_pressed("pause"):
 		_toggle_pause()
+	if not game_over and not paused and Input.is_action_just_pressed("shop"):
+		_toggle_shop()
+	if not game_over and not paused and Input.is_action_just_pressed("crafting"):
+		_toggle_crafting()
 	_collisions_check()
 	_process_milestones(_delta)
 
 func _toggle_pause():
+	if shop_ui and shop_ui.is_open():
+		_toggle_shop()
+		return
+	if crafting_ui and crafting_ui.is_open():
+		_toggle_crafting()
+		return
 	paused = not paused
 	get_tree().paused = paused
 	pause_menu.visible = paused
@@ -145,6 +163,30 @@ func _toggle_pause():
 		var resume_btn = pause_menu.get_node_or_null("Center/Resume")
 		if resume_btn:
 			resume_btn.grab_focus()
+
+func _toggle_shop():
+	if shop_ui == null:
+		return
+	if shop_ui.is_open():
+		shop_ui.close()
+		get_tree().paused = false
+	else:
+		if paused or game_over or (crafting_ui and crafting_ui.is_open()):
+			return
+		shop_ui.open()
+		get_tree().paused = true
+
+func _toggle_crafting():
+	if crafting_ui == null:
+		return
+	if crafting_ui.is_open():
+		crafting_ui.close()
+		get_tree().paused = false
+	else:
+		if paused or game_over or (shop_ui and shop_ui.is_open()):
+			return
+		crafting_ui.open()
+		get_tree().paused = true
 
 func _collisions_check():
 	for enemy in enemies.get_children():
@@ -510,7 +552,7 @@ func _spawn_respawn_ring(pos: Vector2):
 
 func _on_enemy_killed(value, pos):
 	_gm().add_score(value)
-	_spawn_explosion(pos, 1.0, Color(1.0, 0.7, 0.2))
+	ParticleManager.spawn_explosion(effects, pos, 1.0, Color(1.0, 0.7, 0.2))
 	_shake(0.05, 3)
 	_hit_spark(pos, Color(1.0, 0.9, 0.3), 0.8)
 	_hitstop(0.04)

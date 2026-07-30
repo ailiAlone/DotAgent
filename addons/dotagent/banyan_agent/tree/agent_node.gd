@@ -108,6 +108,7 @@ var _read_files: Array = []
 var _exec_actions_this_run: int = 0    # 本次运行中执行/委派类工具调用次数（只读探索不计）
 var _completion_challenged: bool = false  # 本次运行是否已挑战过"零执行收工"（每次运行最多挑战一次）
 var _nudge_count: int = 0              # 本次运行中 nudge 次数（限制 reminder 消息）
+var _knowledge_saved_count: int = 0     # 本次运行保存的知识条目数（用于 Completion Challenge 快速通道）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 
@@ -203,6 +204,7 @@ func run(ticket: Dictionary = {}) -> void:
 	_exec_actions_this_run = 0
 	_completion_challenged = false
 	_nudge_count = 0
+	_knowledge_saved_count = 0
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -271,10 +273,12 @@ func run(ticket: Dictionary = {}) -> void:
 
 		var action: String = _analyze_response(_nudged, _redirected, _total_tool_calls)
 
-		# 成果校验：零执行/零委派/零文件就收工，大概率是"只分析没干活"。
+		# 成果校验：零文件 + 零知识产出就收工，大概率是"只分析没干活"。
+		# 保存过知识条目 = 有具体产出，跳过挑战直接收束（省一轮 LLM 调用）。
 		# 每次运行挑战一次 — 要求继续动手，或明确说明任务本就是纯分析
 		if action == ACTION_FINISH and not _completion_challenged \
-				and _exec_actions_this_run == 0 and _files_created.is_empty() \
+				and _files_created.is_empty() \
+				and _knowledge_saved_count == 0 \
 				and not _abort_requested:
 			_completion_challenged = true
 			action = ACTION_CHALLENGE
@@ -313,7 +317,7 @@ func run(ticket: Dictionary = {}) -> void:
 	# ── 收束阶段 ──
 	# 挑战后仍零执行 = 节点已确认这是纯分析/问答任务 — 保留它自己的最终答复，
 	# 不再套用架构分析模板（否则模板总结会掩盖"什么都没做"的事实）
-	var analysis_only: bool = _completion_challenged and _exec_actions_this_run == 0 and _files_created.is_empty()
+	var analysis_only: bool = _completion_challenged and _files_created.is_empty()
 	if not analysis_only:
 		await _request_convergence_summary()
 
@@ -421,10 +425,10 @@ func _act_on_response(action: String, nudged: bool) -> bool:
 			return false
 
 		ACTION_CHALLENGE:
-			_log("Round %d: finish attempted with zero execution — challenging" % _round_count)
+			_log("Round %d: finish attempted with zero files — challenging" % _round_count)
 			messages.append({
 				"role": "user",
-				"content": "Before finishing, check your work: this run made no actual changes (no execution tools used, no files created or modified, no children delegated). If the task requires real changes, keep working — build/create/modify with execution tools, or delegate with spawn_child/route_to_child. A plan or analysis is NOT completion. Only finish without changes if the task is purely a question or analysis request — in that case state explicitly that no changes were needed and deliver your final answer.",
+				"content": "Before finishing, check your work: this run produced no file changes (no files created, modified, or written). If the task requires real changes, keep working — build/create/modify with execution tools, or delegate with spawn_child/route_to_child. A plan or analysis is NOT completion. Only finish without changes if the task is purely a question or analysis request — in that case state explicitly that no changes were needed and deliver your final answer.",
 			})
 			return false
 
@@ -468,6 +472,7 @@ func _request_convergence_summary() -> void:
 Be specific: include file paths, function names, signal names. Do NOT list every file you read — distill the architecture. Focus on what a developer needs to understand the project."""},
 		{"role": "user", "content": "You completed %d rounds of analysis.%s%s\n\nWrite your structured domain knowledge summary now. Do not call any tools." % [_round_count, exec_brief, files_brief]},
 	]
+	var pre_convergence_state: int = node_state  # 保存收束前状态，防止 FAILED 被洗成 COMPLETED
 	_set_node_state(NodeState.LLM_REQUEST)
 	var saved_messages: Array = messages
 	var saved_tools: Array = tool_definitions
@@ -487,7 +492,7 @@ Be specific: include file paths, function names, signal names. Do NOT list every
 				messages.append(final_msg)
 		# 收束总结不能把 FAILED 洗成 COMPLETED（如熔断后）；
 		# 预算耗尽等正常收束时状态不是 FAILED，不受影响
-		if node_state != NodeState.FAILED:
+		if pre_convergence_state != NodeState.FAILED:
 			_set_node_state(NodeState.COMPLETED)
 
 
@@ -621,6 +626,7 @@ func _handle_management_tool(tool_name: String, args: Dictionary) -> Dictionary:
 				"timestamp": Time.get_datetime_string_from_system(),
 			}
 			_save_shared_knowledge(entry)
+			_knowledge_saved_count += 1
 			return {"ok": true, "content": "Knowledge saved: %s" % k_summary.substr(0, 80)}
 		"query_knowledge":
 			var q_category: String = str(args.get("category", ""))
@@ -789,8 +795,14 @@ func _execute_tool_round(tool_calls: Array) -> void:
 		if tc_name in EXECUTION_TOOLS or tc_name in DELEGATION_TOOLS:
 			_exec_actions_this_run += 1
 
-		if tc_name in ["build_scene", "build_script", "update_script", "write_file"] and ok:
+		if tc_name in ["build_scene", "build_script", "update_script", "write_file", "patch_scene", "configure_resource"] and ok:
 			_track_files(result)
+		if tc_name == "replace_in_file" and ok:
+			var tc_args: Variant = JSON.parse_string(tc_args_raw)
+			if tc_args is Dictionary:
+				var p: String = tc_args.get("path", "")
+				if not p.is_empty() and p not in _files_created:
+					_files_created.append(p)
 
 
 func _track_files(result: Dictionary) -> void:
@@ -834,6 +846,18 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 	parent_context += "You are: **%s**\n" % child_name
 	parent_context += "Your parent (%s) assigned you:\n%s\n\n" % [node_id, task_desc]
 	parent_context += "Focus ONLY on this task. When you have enough information, write your summary and stop.\n"
+
+	# 1b. 输出要求 — 防止子节点结束时空总结导致父节点补救
+	parent_context += "\n### Output Requirements\n"
+	parent_context += "When you finish, your final message MUST be a structured summary including:\n"
+	parent_context += "- Key mechanisms and responsibilities of your domain\n"
+	parent_context += "- Public interfaces (signals, exported variables, key methods)\n"
+	parent_context += "- Dependencies and callers\n"
+	parent_context += "- Issues or concerns found\n"
+	parent_context += "Do NOT end with an empty or vague reply. Always deliver a concrete summary.\n"
+	parent_context += "\n### Efficiency Rules\n"
+	parent_context += "- **Batch tool calls in a single round.** If you need to call `save_knowledge` 5 times, do ALL 5 in one tool_calls response — do NOT spread them across 5 separate rounds. Same for `inspect_scene_structured`, `read_script`, etc.\n"
+	parent_context += "- **Use `read_multiple_files` instead of individual `read_script` calls** when reading 2+ files.\n"
 
 	# 2. 文件索引（路径 + 一行摘要）— 子节点可直接引用，无需重读
 	if not _file_summaries.is_empty():

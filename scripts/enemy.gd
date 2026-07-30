@@ -180,13 +180,44 @@ func _get_container() -> Node:
 func take_damage(dmg = 1):
 	hp -= dmg
 	damaged.emit(hp)
+	if dmg > 0:
+		_spawn_damage_popup(dmg)
 	if hp <= 0:
 		die()
 		return true
 	return false
 
+func _spawn_damage_popup(dmg: int):
+	var container = get_parent()
+	if container == null:
+		container = get_tree().current_scene
+	if container == null:
+		return
+	var popup_scene = preload("res://scenes/damage_popup.tscn")
+	var popup = popup_scene.instantiate()
+	popup.setup(dmg)
+	popup.position = global_position
+	container.add_child(popup)
+
+func _drop_crafting_material():
+	var cs = Engine.get_main_loop().root.get_node_or_null("CraftingSystem")
+	if cs == null or not cs.has_method("add_material"):
+		return
+	var roll = randf()
+	var material: String
+	if roll < 0.45:
+		material = "scrap"
+	elif roll < 0.70:
+		material = "energy"
+	elif roll < 0.85:
+		material = "crystal"
+	else:
+		material = "organics"
+	cs.add_material(material, 1)
+
 func die():
 	_am().play_sfx("explode")
+	_drop_crafting_material()
 	# CARRIER 死亡时释放 2-3 只 Scout
 	if enemy_type == EnemyType.CARRIER:
 		_carrier_split()

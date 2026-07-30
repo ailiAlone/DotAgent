@@ -1,0 +1,4 @@
+[gd_scene format=3]
+
+[node name="ShieldEffect" type="Node2D"]
+script = "res://scripts/shield_effect.gd"

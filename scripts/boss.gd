@@ -64,6 +64,7 @@ func take_damage(dmg = 1):
 
 func die():
 	_am().play_sfx("explode")
+	_drop_crafting_material()
 	killed.emit(score_value, position)
 	# 多次爆炸形成大爆裂
 	var container = _get_container()
@@ -74,6 +75,22 @@ func die():
 		exp.color = Color(1.0, 0.4, 0.8)
 		container.add_child(exp)
 	queue_free()
+
+func _drop_crafting_material():
+	var cs = Engine.get_main_loop().root.get_node_or_null("CraftingSystem")
+	if cs == null or not cs.has_method("add_material"):
+		return
+	var roll = randf()
+	var material: String
+	if roll < 0.45:
+		material = "scrap"
+	elif roll < 0.70:
+		material = "energy"
+	elif roll < 0.85:
+		material = "crystal"
+	else:
+		material = "organics"
+	cs.add_material(material, 1)
 
 func _process(delta):
 	t += delta

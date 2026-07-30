@@ -34,11 +34,13 @@ func _on_area(area: Area2D):
 		hp -= 1
 		area.queue_free()
 		if hp <= 0:
+			_drop_crafting_material()
 			_spawn_fragments()
 			queue_free()
 	elif area.is_in_group("player"):
 		if area.has_method("take_damage"):
 			area.take_damage(1)
+		_drop_crafting_material()
 		_spawn_fragments()
 		queue_free()
 
@@ -54,6 +56,22 @@ func _spawn_fragments():
 		frag.velocity = Vector2(randf_range(-80, 80), randf_range(-80, 80))
 		frag.rotation_speed = randf_range(-6, 6)
 		parent.add_child(frag)
+
+func _drop_crafting_material():
+	var cs = Engine.get_main_loop().root.get_node_or_null("CraftingSystem")
+	if cs == null or not cs.has_method("add_material"):
+		return
+	var roll = randf()
+	var material: String
+	if roll < 0.45:
+		material = "scrap"
+	elif roll < 0.70:
+		material = "energy"
+	elif roll < 0.85:
+		material = "crystal"
+	else:
+		material = "organics"
+	cs.add_material(material, 1)
 
 func _draw():
 	var r = 22 * size

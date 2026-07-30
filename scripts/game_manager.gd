@@ -44,6 +44,9 @@ func reset_run():
 	combo_timer = 0.0
 	score_multiplier = 1.0
 	score_multiplier_timer = 0.0
+	var cs = Engine.get_main_loop().root.get_node_or_null("CraftingSystem")
+	if cs != null and cs.has_method("reset_inventory"):
+		cs.reset_inventory()
 
 func add_score(amount: int):
 	var multiplier = (1 + combo / 10) * score_multiplier

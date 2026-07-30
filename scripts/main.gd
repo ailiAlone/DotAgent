@@ -7,7 +7,9 @@ func _ready():
 	# 运行时兜底：注册 headless 模式下可能缺失的输入动作
 	# （项目设置已包含 ui_accept / pause，这里只注册自定义动作）
 	_ensure_input_action("alt_shoot", KEY_SHIFT)
-	_ensure_input_action("dash", KEY_L)
+	_ensure_input_action("dodge", KEY_SPACE)
+	_ensure_input_action("shop", KEY_B)
+	_ensure_input_action("crafting", KEY_C)
 
 	var tree = get_tree()
 	if tree and not tree.root.has_node("GameManager"):

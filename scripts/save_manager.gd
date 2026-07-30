@@ -89,3 +89,30 @@ static func get_save_summary() -> String:
 	var wave = dict["wave"]
 	var score = dict["score"]
 	return "Wave %s - Score %s" % [wave, score]
+
+# --- Crafting inventory persistence ---
+
+const CRAFTING_SAVE_PATH = "user://crafting.save"
+
+func save_crafting_inventory(inventory: Dictionary) -> bool:
+	var file := FileAccess.open(CRAFTING_SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		return false
+	file.store_string(JSON.stringify(inventory))
+	file.close()
+	return true
+
+func load_crafting_inventory() -> Dictionary:
+	if not FileAccess.file_exists(CRAFTING_SAVE_PATH):
+		return {}
+	var file := FileAccess.open(CRAFTING_SAVE_PATH, FileAccess.READ)
+	if file == null:
+		return {}
+	var text := file.get_as_text()
+	file.close()
+	if text.is_empty():
+		return {}
+	var result = JSON.parse_string(text)
+	if result is Dictionary:
+		return result
+	return {}

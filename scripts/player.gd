@@ -50,33 +50,62 @@ var weapon_type: int = 0:
 var weapon_xp: int = 0
 var weapon_xp_next: int = 500
 
-var dash_cooldown: float = 0.0
-var dash_duration: float = 0.0
-var dash_dir: Vector2 = Vector2.ZERO
-var dash_speed: float = 1600.0
-var dash_trail: Array = []
+var dodge_cooldown: float = 0.0
+var dodge_duration: float = 0.0
+var dodge_dir: Vector2 = Vector2.ZERO
+var dodge_speed: float = 900.0
+var dodge_trail: Array = []
+
+const DODGE_DURATION: float = 0.4
+const DODGE_COOLDOWN: float = 1.5
 
 var _bullet_scene: PackedScene = preload("res://scenes/bullet.tscn")
+var _damage_popup_scene: PackedScene = preload("res://scenes/damage_popup.tscn")
+var _shield_effect_scene: PackedScene = preload("res://scenes/shield_effect.tscn")
+var _dodge_spark_scene: PackedScene = preload("res://scenes/hit_spark.tscn")
+
+var _shield_system: Node = null
+var _shield_effect: Node2D = null
 
 func _ready():
 	screen_size = get_viewport_rect().size
 	add_to_group("player")
+	var shield_script = load("res://scripts/shield_system.gd")
+	_shield_system = shield_script.new()
+	_shield_system.name = "ShieldSystem"
+	_shield_system.shield_depleted.connect(_on_shield_depleted)
+	add_child(_shield_system)
+
+	# Ensure dodge roll input is registered (spacebar).
+	if not InputMap.has_action("dodge"):
+		InputMap.add_action("dodge")
+	var dodge_ev = InputEventKey.new()
+	dodge_ev.keycode = KEY_SPACE
+	InputMap.action_add_event("dodge", dodge_ev)
+	# Remove spacebar from shoot so it does not conflict with dodge roll.
+	for ev in InputMap.action_get_events("shoot"):
+		if ev is InputEventKey and ev.keycode == KEY_SPACE:
+			InputMap.action_erase_event("shoot", ev)
 
 func _process(delta):
-	if dash_duration > 0:
-		dash_duration -= delta
-		position += dash_dir * dash_speed * delta
+	_update_shield_input()
+	_update_shield_visuals()
+
+	# Dodge roll active: move quickly and remain invulnerable.
+	if dodge_duration > 0:
+		dodge_duration -= delta
+		if invuln_timer > 0:
+			invuln_timer -= delta
+		position += dodge_dir * dodge_speed * delta
 		position.x = clamp(position.x, 30, screen_size.x - 30)
 		position.y = clamp(position.y, 30, screen_size.y - 30)
-		invuln_timer = 0.15
-		_spawn_trail()
-		if dash_duration <= 0:
-			dash_cooldown = 0.8
+		if dodge_duration <= 0:
+			dodge_cooldown = DODGE_COOLDOWN
 		engine_pulse = fmod(engine_pulse + delta * 14.0, TAU)
 		queue_redraw()
 		return
-	if dash_cooldown > 0:
-		dash_cooldown -= delta
+	if dodge_cooldown > 0:
+		dodge_cooldown -= delta
 
 	var input = Vector2(
 		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
@@ -84,13 +113,16 @@ func _process(delta):
 	)
 	if input.length() > 0:
 		input = input.normalized()
-		if Input.is_action_just_pressed("dash") and dash_cooldown <= 0 and dash_duration <= 0:
-			dash_dir = input
-			dash_duration = 0.15
-			_am().play_sfx("powerup")
-			_spawn_trail()
-			_spawn_trail()
-			return
+
+	# Trigger dodge roll on spacebar.
+	if Input.is_action_just_pressed("dodge") and dodge_cooldown <= 0 and dodge_duration <= 0:
+		dodge_dir = input if input.length() > 0 else Vector2.UP
+		dodge_duration = DODGE_DURATION
+		invuln_timer = DODGE_DURATION
+		_am().play_sfx("powerup")
+		_spawn_dodge_spark()
+		return
+
 	position += input * speed * delta
 	position.x = clamp(position.x, 30, screen_size.x - 30)
 	position.y = clamp(position.y, 30, screen_size.y - 30)
@@ -199,6 +231,7 @@ func take_damage(dmg = 1):
 		hit.emit()
 		return true
 	hp -= dmg
+	_spawn_damage_popup(dmg, false)
 	hit.emit()
 	if hp <= 0:
 		die()
@@ -207,6 +240,16 @@ func take_damage(dmg = 1):
 
 func heal(amount):
 	hp = min(hp + amount, max_hp)
+	_spawn_damage_popup(amount, true)
+
+func _spawn_damage_popup(value: int, is_heal: bool):
+	if _damage_popup_scene == null:
+		return
+	var popup = _damage_popup_scene.instantiate()
+	popup.position = position
+	popup.value = value
+	popup.is_heal = is_heal
+	get_parent().add_child(popup)
 
 func reset():
 	hp = 3
@@ -219,8 +262,8 @@ func reset():
 	weapon_level = 0
 	weapon_xp = 0
 	weapon_xp_next = 500
-	dash_cooldown = 0
-	dash_duration = 0
+	dodge_cooldown = 0
+	dodge_duration = 0
 	visible = true
 	$CollisionShape2D.disabled = false
 	set_process(true)
@@ -324,8 +367,8 @@ func _draw():
 			var cx = cos(angle) * orbit_r
 			var cy = sin(angle) * orbit_r
 			draw_circle(Vector2(cx, cy), 3.5, lv_colors[min(i, 3)])
-	if dash_cooldown > 0:
-		var cd_pct = dash_cooldown / 0.8
+	if dodge_cooldown > 0:
+		var cd_pct = dodge_cooldown / DODGE_COOLDOWN
 		draw_arc(Vector2.ZERO, 50, -PI/2, -PI/2 + TAU * (1 - cd_pct), 16, Color(1, 1, 1, 0.5), 2)
 
 func _spawn_trail():
@@ -334,3 +377,32 @@ func _spawn_trail():
 	var t = trail_scene.instantiate()
 	t.position = position + Vector2(0, 16)
 	get_parent().add_child(t)
+
+func _spawn_dodge_spark():
+	if _dodge_spark_scene == null:
+		return
+	var spark = _dodge_spark_scene.instantiate()
+	spark.position = position
+	get_parent().add_child(spark)
+	if spark.has_method("spark"):
+		spark.spark(Color(0.3, 0.85, 1.0), 1.5)
+
+func _update_shield_input():
+	if Input.is_action_just_pressed("shield"):
+		_shield_system.activate()
+	elif Input.is_action_just_released("shield"):
+		_shield_system.deactivate()
+
+func _update_shield_visuals():
+	if _shield_system.is_active():
+		if _shield_effect == null:
+			_shield_effect = _shield_effect_scene.instantiate()
+			_shield_effect.position = position
+			get_parent().add_child(_shield_effect)
+	else:
+		if _shield_effect != null:
+			_shield_effect.queue_free()
+			_shield_effect = null
+
+func _on_shield_depleted():
+	_update_shield_visuals()

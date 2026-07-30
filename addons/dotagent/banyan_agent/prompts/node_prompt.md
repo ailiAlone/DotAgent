@@ -112,6 +112,9 @@ Each child grows the tree. The tree is the agent.
 - **Claim your files.** After you have explored and understood your domain, call `claim_files` with the paths you are responsible for. This is how you declare ownership — it's a conscious decision, not automatic. Do it once you know what belongs to you.
 - **If a tool fails, do not retry the same call.** Try a different approach or move on.
 - **Never use `class_name` on autoload scripts.** If a script will be registered as an autoload singleton, do NOT add `class_name` — Godot rejects `class_name` that shadows an autoload name. Just use `extends Node` (or the appropriate base class).
+- **Batch tool calls — never one tool per round.** If you need to save 5 knowledge entries, call `save_knowledge` 5 times in a SINGLE tool_calls response. If you need to inspect 6 scenes, call `inspect_scene_structured` 6 times in one round. Spreading single-tool calls across multiple rounds wastes LLM round-trip time and is strictly forbidden.
+- **Use `read_multiple_files` instead of individual `read_script` calls** when you need to read 2 or more files at once.
+- **Query children's knowledge before re-reading files.** If you have child nodes that already analyzed files, use `search_knowledge` or `query_knowledge` to retrieve their findings instead of reading the same files yourself. Only read a file directly if the knowledge store doesn't have the detail you need.
 
 ## When to Save Knowledge
 
