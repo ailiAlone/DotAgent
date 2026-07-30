@@ -1,34 +1,9 @@
 {
 	"nodes": {
 		"Root": {
-			"children_summaries": [
-				{
-					"files": [
-						"res://scripts/powerup.gd",
-						"res://scenes/powerup.tscn"
-					],
-					"id": "PowerupSystem",
-					"status": "COMPLETED",
-					"summary": "Powerup system implemented successfully.\n\n## Summary\n\n### Domain: PowerupSystem\nCreated a self-contained powerup pickup from scratch.\n\n### Files Produced\n- `res://scripts/powerup.gd`\n- `res://scenes/p"
-				},
-				{
-					"files": [
-						"res://scripts/player.gd",
-						"res://scripts/game_manager.gd"
-					],
-					"id": "PlayerSystem",
-					"status": "COMPLETED",
-					"summary": "# PlayerSystem 修改完成\n\n## 已修改文件\n- `res://scripts/player.gd`\n- `res://scripts/game_manager.gd`\n\n## 关键机制\n\n### 玩家武器等级系统\n- `MAX_WEAPON_LEVEL = 3`\n- `weapon_level` 从 1 开始，外部通过 `get_weapon_level()` 只读访问\n- `_e"
-				},
-				{
-					"files": [],
-					"id": "GameIntegration",
-					"status": "IDLE",
-					"summary": ""
-				}
-			],
-			"ctx_size": 94795,
-			"domain_knowledge": "已完成道具和武器升级系统的实现，并通过了语法检查和场景运行验证。\n\n## 实现内容\n\n### 1. 道具系统\n- 新建 `res://scripts/powerup.gd`：\n  - `enum Type { HEAL, RAPID_FIRE, SHIELD, BOMB }`\n  - `DROP_SPEED = 80.0`，从敌人死亡位置缓慢下落\n  - 不同道具用不同颜色绘制：heal=绿、rapid_fire=橙、shield=蓝、bomb=紫\n- 新建 `res://scenes/powerup.tscn`：Node2D 根节点，挂载 `powerup.gd`，加入 `\"powerup\"` 组\n\n### 2. 道具掉落与拾取\n- 在 `res://scripts/game.gd` 中：\n  - 敌人死亡时有 **30% 概率**掉落随机道具\n  - 新增 `_handle_powerup_collection()`，用距离检测玩家与道具碰撞\n  - 拾取后调用 `player.apply_powerup(type_string)`\n  - `bomb` 道具会触发 `_activate_bomb()`，销毁屏幕内所有敌人\n\n### 3. 玩家武器升级系统\n- 在 `res://scripts/player.gd` 中：\n  - `weapon_level` 1-3 级\n  - `_experience` 累积击杀经验\n  - 升级阈值 `EXP_TO_LEVEL = [5, 10, 15]`\n  - `add_experience(amount: int) -> bool`：返回是否升级\n  - 武器等级越高，子弹越多：\n    - Lv1：1 发\n    - Lv2：2 发\n    - Lv3：3 发\n- `GameManager` 新增 `add_life(amount: int)`，治疗道具调用回血\n\n### 4. 道具效果\n- `heal`：恢复 1 条生命\n- `rapid_fire`：5 秒内射击冷却从 0.5s 降至 0.15s\n- `shield`：3 秒内无敌，撞敌不扣血\n- `bomb`：清屏\n\n### 5. HUD 武器等级显示\n- `res://scenes/hud.tscn` 新增 `WeaponLevelLabel`\n- `res://scripts/hud.gd` 新增 `set_weapon_level(level)` 方法\n- `game.gd` 在玩家升级时调用更新 HUD\n\n## 验证结果\n- `res://scripts/powerup.gd`：Syntax OK\n- `res://scripts/player.gd`：Syntax OK\n- `res://scripts/game_manager.gd`：Syntax OK\n- `res://scripts/game.gd`：Syntax OK\n- `res://scripts/hud.gd`：Syntax OK\n- `res://scenes/main.tscn` 运行 120 帧无报错。",
+			"children_summaries": [],
+			"ctx_size": 109160,
+			"domain_knowledge": "已完成菜单、暂停菜单和游戏流程的完善，并通过了全部语法检查与场景运行验证。\n\n## 实现内容\n\n### 1. 暂停菜单 UI\n- 在 `res://scenes/hud.tscn` 的 `PauseOverlay` 中新增按钮菜单：\n  - `ResumeButton` — 继续游戏\n  - `RestartButton` — 重新开始\n  - `QuitButton` — 返回主菜单\n- 美化暂停界面：半透明深色遮罩、`PAUSED` 标题居中、按钮垂直排列\n- 在 `res://scripts/hud.gd` 中实现按钮响应：\n  - Resume：调用 `GameManager.set_pause(false)`\n  - Restart：解除暂停并切换到 `res://scenes/game.tscn`\n  - Quit：解除暂停并切换到 `res://scenes/menu.tscn`\n- 保留 `Esc` / `pause` 输入键切换暂停的功能\n\n### 2. 菜单场景\n- `res://scenes/menu.tscn` 现在是项目主场景（`project.godot` 已设置）\n- 菜单背景改为深蓝灰色，标题改为金黄色，避免文字和背景同色看不清\n- `res://scripts/menu.gd` 更新为强类型 GDScript 4.5 规范\n\n### 3. 游戏结束场景\n- `res://scenes/game_over.tscn` 背景改为深紫色半透明，标题改为红色，提升可读性\n\n### 4. GameManager 流程修复\n- `res://scripts/game_manager.gd` 中 `reset()` 先恢复 `paused = false` 与 `get_tree().paused = false`，再发信号，避免从暂停状态返回后树仍处于暂停\n\n### 5. Game 场景流程\n- `res://scripts/game.gd` 中玩家生命归零时调用 `GameManager.set_pause(true)` 后切换到 `res://scenes/game_over.tscn`\n- 射击、生成、波次逻辑在暂停时正确跳过\n\n## 验证结果\n\n- `res://scripts/hud.gd`：Syntax OK  \n- `res://scripts/game.gd`：Syntax OK  \n- `res://scripts/menu.gd`：Syntax OK  \n- `res://scripts/game_manager.gd`：Syntax OK  \n- `res://scenes/menu.tscn`：运行 120 帧无报错  \n- `res://scenes/game.tscn`：运行 120 帧无报错  \n- `res://scenes/game_over.tscn`：运行 120 帧无报错\n\n现在游戏流程为：主菜单 → 开始游戏 → 游戏中可按 Esc 暂停/继续/重开/退出 → 生命归零 → 游戏结束画面。",
 			"file_summaries": {
 
 			},
@@ -37,7 +12,8 @@
 				"2026-07-30: R29, 11 files — ## Project Overview\n2D top-down Godot 4 project built around a single main scene",
 				"2026-07-30: R24, 13 files — ## Project Overview\nA 2D arcade-style shooter built in Godot 4.5, using a scene-",
 				"2026-07-30: R7, 3 files — 已完成打磨功能的实现，并通过了语法检查和场景运行验证。\n\n## 实现内容\n\n### 1. 波次系统（`res://scripts/game.gd`）\n- 新增 ",
-				"2026-07-30: R20, 4 files — 已完成道具和武器升级系统的实现，并通过了语法检查和场景运行验证。\n\n## 实现内容\n\n### 1. 道具系统\n- 新建 `res://scripts/power"
+				"2026-07-30: R20, 4 files — 已完成道具和武器升级系统的实现，并通过了语法检查和场景运行验证。\n\n## 实现内容\n\n### 1. 道具系统\n- 新建 `res://scripts/power",
+				"2026-07-30: R42, 16 files — 已完成菜单、暂停菜单和游戏流程的完善，并通过了全部语法检查与场景运行验证。\n\n## 实现内容\n\n### 1. 暂停菜单 UI\n- 在 `res://scenes"
 			],
 			"managed_files": [
 				"res://scenes/main.tscn",
@@ -56,7 +32,11 @@
 				"res://scripts/bullet.gd",
 				"res://scenes/bullet.tscn",
 				"res://scripts/powerup.gd",
-				"res://scenes/powerup.tscn"
+				"res://scenes/powerup.tscn",
+				"res://scripts/menu.gd",
+				"res://scenes/menu.tscn",
+				"res://scripts/game_over.gd",
+				"res://scenes/game_over.tscn"
 			],
 			"managed_nodes": [],
 			"node_id": "Root",
@@ -65,6 +45,6 @@
 		}
 	},
 	"root_id": "Root",
-	"saved_at": "2026-07-30T13:47:25",
+	"saved_at": "2026-07-30T13:56:21",
 	"version": "1.0"
 }

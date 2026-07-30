@@ -28,12 +28,12 @@ func reset() -> void:
 	score = 0
 	wave = 1
 	lives = starting_lives
+	paused = false
+	get_tree().paused = false
 	score_changed.emit(score)
 	high_score_changed.emit(high_score)
 	lives_changed.emit(lives)
 	wave_changed.emit(wave)
-	paused = false
-	get_tree().paused = false
 	game_paused.emit(paused)
 
 
