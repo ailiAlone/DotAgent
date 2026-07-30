@@ -28,3 +28,7 @@ window/stretch/aspect="\"keep\""
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/dotagent/plugin.cfg")
+
+[run]
+
+main_scene="res://scenes/main.tscn"
