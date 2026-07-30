@@ -1,0 +1,7 @@
+[gd_scene format=3]
+
+[node name="Game" type="Node2D"]
+script = "res://scripts/game.gd"
+
+[node name="Player" type="Node2D" parent="."]
+script = "res://scripts/player.gd"

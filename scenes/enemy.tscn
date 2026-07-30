@@ -1,0 +1,4 @@
+[gd_scene format=3]
+
+[node name="Enemy" type="Node2D" groups=["enemy"]]
+script = "res://scripts/enemy.gd"
