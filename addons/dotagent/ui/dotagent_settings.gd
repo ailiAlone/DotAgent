@@ -223,6 +223,10 @@ func _on_key_submitted() -> void:
 	if not raw.is_empty() and raw != _mask_key(_real_api_key):
 		_real_api_key = raw
 		OS.set_environment("DOTAGENT_API_KEY", raw)
+		if _persist_api_key_system(raw):
+			print_rich("[color=#88cc88][DotAgent][/color] API Key persisted to system environment")
+		else:
+			print_rich("[color=#ffaa66][DotAgent][/color] API Key set for this session only (persist failed)")
 	_save()
 
 
@@ -353,9 +357,77 @@ func _apply_proxy(http: HTTPRequest) -> void:
 	http.set_https_proxy(host, port)
 
 
+# ============ 系统级持久化 ============
+
+## 将 API Key 持久化到系统环境变量（跨平台）
+## Windows: setx 写用户注册表; Unix: 写 shell rc 文件
+## 失败时仅当前进程生效（OS.set_environment 已处理）
+func _persist_api_key_system(key: String) -> bool:
+	if key.is_empty():
+		return false
+	match OS.get_name():
+		"Windows":
+			return _persist_api_key_windows(key)
+		"macOS", "Linux", "FreeBSD", "NetBSD", "OpenBSD":
+			return _persist_api_key_unix(key)
+		_:
+			return false
+
+
+func _persist_api_key_windows(key: String) -> bool:
+	# setx 限制 1024 字符
+	if key.length() > 1024:
+		push_warning("[DotAgent] API Key exceeds setx 1024-char limit, skip persist")
+		return false
+	var output: Array = []
+	var exit_code := OS.execute("setx", ["DOTAGENT_API_KEY", key], output, true)
+	return exit_code == 0
+
+
+func _persist_api_key_unix(key: String) -> bool:
+	var home: String = OS.get_environment("HOME")
+	if home.is_empty():
+		return false
+	# 按 shell 选择 rc 文件，回退到 ~/.profile
+	var shell: String = OS.get_environment("SHELL")
+	var rc_path: String = home + "/.profile"
+	if shell.ends_with("/bash"):
+		rc_path = home + "/.bashrc"
+	elif shell.ends_with("/zsh"):
+		rc_path = home + "/.zshrc"
+
+	# 读取现有内容，移除旧的同名 export 行避免重复
+	var content: String = ""
+	var f := FileAccess.open(rc_path, FileAccess.READ)
+	if f:
+		content = f.get_as_text()
+		f.close()
+
+	var new_lines := PackedStringArray()
+	for line in content.split("\n"):
+		if not line.begins_with("export DOTAGENT_API_KEY="):
+			new_lines.append(line)
+	new_lines.append("export DOTAGENT_API_KEY=" + _shell_quote(key))
+
+	var fw := FileAccess.open(rc_path, FileAccess.WRITE)
+	if not fw:
+		push_warning("[DotAgent] Cannot write %s (err=%d)" % [rc_path, FileAccess.get_open_error()])
+		return false
+	fw.store_string("\n".join(new_lines) + "\n")
+	fw.close()
+	return true
+
+
+func _shell_quote(val: String) -> String:
+	# 单引号包裹，转义内部单引号
+	return "'" + val.replace("'", "'\\''") + "'"
+
+
 # ============ 工具函数 ============
 
 func _mask_key(key: String) -> String:
+	if key.is_empty():
+		return ""
 	if key.length() <= 10:
 		return key[0] + "****" + key[key.length() - 1]
 	return key.substr(0, 6) + "****" + key.substr(key.length() - 4)

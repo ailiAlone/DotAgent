@@ -211,10 +211,14 @@ func build_request_body(model: String, messages: Array, tools: Array, stream: bo
 
 ## Anthropic 工具：name 必须是 ^[a-zA-Z0-9_-]{1,64}$
 ## 描述: input_schema 必填（不能只用 description）
+## 输入兼容两种格式：OpenAI 封装 {"type":"function","function":{name,...}} 与扁平 {name, ...}
 func _adapt_tools(tools: Array) -> Array:
 	var adapted: Array = []
 	for t in tools:
-		var name: String = str(t.get("name", ""))
+		var fn: Dictionary = t
+		if typeof(t.get("function")) == TYPE_DICTIONARY:
+			fn = t.get("function")  # 拆 OpenAI function 封装，否则 name 取空导致工具被全部丢弃
+		var name: String = str(fn.get("name", ""))
 		if name.is_empty():
 			continue
 		# 清洗名称: 只保留字母数字下划线连字符
@@ -232,11 +236,11 @@ func _adapt_tools(tools: Array) -> Array:
 
 		var at: Dictionary = {
 			"name": clean_name,
-			"description": str(t.get("description", "")),
+			"description": str(fn.get("description", "")),
 		}
 		# 尝试使用原始 schema
-		if t.has("parameters") and typeof(t.get("parameters")) == TYPE_DICTIONARY:
-			at["input_schema"] = t.get("parameters")
+		if fn.has("parameters") and typeof(fn.get("parameters")) == TYPE_DICTIONARY:
+			at["input_schema"] = fn.get("parameters")
 		else:
 			# Anthropic 要求 input_schema；给最小可用结构
 			at["input_schema"] = {

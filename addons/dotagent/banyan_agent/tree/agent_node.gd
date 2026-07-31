@@ -112,6 +112,8 @@ var _recent_actions: Array = []         # 最近 6 轮的动作（"nudge"/"execu
 var _knowledge_saved_count: int = 0     # 本次运行保存的知识条目数（用于 Completion Challenge 快速通道）
 var _spawn_recommended: bool = false    # (deprecated, use _spawn_rec_stage)
 var _spawn_rec_stage: int = 0           # spawn 推荐阶段: 0=未推荐, 1=首次(具体方案), 2=二次(强制提醒)
+var _routed_this_run: bool = false      # 本次运行是否已 route/spawn 过（路由推荐的前提检查）
+var _route_recommended: bool = false    # 本次运行是否已推过路由提醒（只推一次）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 
@@ -129,6 +131,10 @@ var _current_round_trace: Dictionary = {}
 var _last_reasoning: String = ""    # 最近一次 LLM 响应的推理流（reasoning_content）
 var _stream_chars: int = 0          # 本次请求已流入的字符数（content + reasoning）— 供 Agent Graph 显示流式进度
 var _last_stream_notify: int = 0    # 流式心跳节流（msec）
+var _usage_input_tokens: int = 0    # 本次运行累计 input tokens（成本度量）
+var _usage_output_tokens: int = 0   # 本次运行累计 output tokens
+var _syntax_fail_streak: int = 0    # 连续语法校验失败次数（≥2 注入一次定向提醒）
+var _syntax_reminded: bool = false  # 本次运行是否已注入过语法提醒
 
 
 # ============ 初始化 ============
@@ -215,6 +221,12 @@ func run(ticket: Dictionary = {}) -> void:
 	_knowledge_saved_count = 0
 	_spawn_recommended = false
 	_spawn_rec_stage = 0
+	_routed_this_run = false
+	_route_recommended = false
+	_usage_input_tokens = 0
+	_usage_output_tokens = 0
+	_syntax_fail_streak = 0
+	_syntax_reminded = false
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -242,6 +254,11 @@ func run(ticket: Dictionary = {}) -> void:
 	var user_msg: String = _construct_user_message(ticket)
 	if not user_msg.is_empty():
 		messages.append({"role": "user", "content": user_msg})
+
+	# 按需注入领域技能 — 任务文本命中 triggers 的技能全文注入为 system 消息（每次运行一次）
+	var skills_msg: String = _match_skills(user_msg)
+	if not skills_msg.is_empty():
+		messages.append({"role": "system", "content": skills_msg})
 
 	var _nudged: bool = false
 	var _redirected: bool = false
@@ -343,6 +360,10 @@ func run(ticket: Dictionary = {}) -> void:
 	_execution_trace["duration_sec"] = elapsed
 	_execution_trace["status"] = "COMPLETED" if node_state == NodeState.COMPLETED else "FAILED"
 	_execution_trace["summary"] = _extract_summary()
+	_execution_trace["usage"] = {
+		"input_tokens": _usage_input_tokens,
+		"output_tokens": _usage_output_tokens,
+	}
 
 	# 更新领域知识 — 只接受结构化的蒸馏总结；
 	# 原始思考流会被 _request_convergence_summary 用结构化模板重写
@@ -369,10 +390,20 @@ func run(ticket: Dictionary = {}) -> void:
 		var child = _children[cname]
 		if child._execution_trace.size() > 0 \
 				and str(child._execution_trace.get("started_at", "")) >= root_started:
-			_execution_trace["children"].append(child._execution_trace)
+			var ctrace: Dictionary = child._execution_trace
+			# 子节点还在跑（路由后未等待）— duration/usage 只在 run() 收尾时写入，
+			# 这里用实时值补齐并标记，避免 trace 出现 rounds>0 但 duration=0/tokens=0 的假象
+			if float(ctrace.get("duration_sec", 0.0)) == 0.0:
+				ctrace["duration_sec"] = (float(Time.get_ticks_msec()) - child._run_start_time) / 1000.0
+				ctrace["usage"] = {
+					"input_tokens": child._usage_input_tokens,
+					"output_tokens": child._usage_output_tokens,
+				}
+				ctrace["status"] = "IN_PROGRESS"
+			_execution_trace["children"].append(ctrace)
 
 	progress_done.emit()
-	_log("Finished: state=%s rounds=%d duration=%.1fs" % [state, _round_count, elapsed])
+	_log("Finished: state=%s rounds=%d duration=%.1fs tokens=%din/%dout" % [state, _round_count, elapsed, _usage_input_tokens, _usage_output_tokens])
 
 
 # ============ ReAct 循环子步骤 ============
@@ -386,7 +417,7 @@ func run(ticket: Dictionary = {}) -> void:
 #   1. 当前轮次 >= 6（Stage 1）或 >= 12（Stage 2）
 #   2. 已读文件数 >= 4（领域在扩大）
 #   3. 尚无子节点（还没拆过）
-#   4. 当前是根节点（只有 Root 有权 spawn）
+# 任意节点都可分裂（架构文档第九节：反对叶子节点限制）— 不只 Root
 
 const SPAWN_REC_ROUND_THRESHOLD := 6
 const SPAWN_REC_FILE_THRESHOLD := 4
@@ -394,9 +425,22 @@ const SPAWN_REC_STAGE2_ROUND := 12
 
 ## 每轮 LLM 请求前调用 — 检测是否应注入 spawn 推荐
 func _check_spawn_recommendation() -> void:
-	# 只有根节点才考虑 spawn（子节点不应再分裂）
-	if not parent_id.is_empty():
-		return
+	# ── 路由推荐：已有子节点，读了它们管辖的文件却迟迟不路由 ──
+	# 实测 Root 会在有专家子节点时仍自己包办全部实现（35 轮 / 210k tokens），
+	# 重复加载子节点已持有的知识 — 提醒一次，由模型决定
+	if not _children.is_empty() and not _routed_this_run and not _route_recommended \
+			and _round_count >= SPAWN_REC_ROUND_THRESHOLD \
+			and _read_files.size() >= SPAWN_REC_FILE_THRESHOLD:
+		var overlap: Dictionary = _find_child_file_overlap()
+		if not overlap.is_empty():
+			_route_recommended = true
+			var rmsg := "## Routing Reminder\n\nYou have read files managed by your existing children:\n"
+			for cname in overlap:
+				rmsg += "- **%s** manages: %s\n" % [cname, ", ".join(overlap[cname])]
+			rmsg += "\nThese children already hold deep knowledge of those files. Consider `route_to_child` for work in their domains instead of doing everything yourself — it saves your context and keeps expertise where it belongs. If a change truly requires your direct edit, proceed."
+			_log("Routing recommendation (round=%d, overlap=%s)" % [_round_count, str(overlap.keys())])
+			messages.append({"role": "user", "content": rmsg})
+
 	if _read_files.size() < SPAWN_REC_FILE_THRESHOLD:
 		return
 	if not _children.is_empty():
@@ -457,6 +501,19 @@ func _build_spawn_plan(active_domains: Array, domain_map: Dictionary) -> String:
 	msg += "3. Integrate results and finish\n\n"
 	msg += "**Why this helps:** Children run in parallel — a 3-domain task that takes you 30 rounds alone can finish in ~10 rounds with 3 children.\n"
 	return msg
+
+
+## 从文件路径列表推断领域分组，返回 domain→files 映射
+func _find_child_file_overlap() -> Dictionary:
+	var overlap: Dictionary = {}
+	for f in _read_files:
+		for cname in _children:
+			var child = _children[cname]
+			if child.managed_files.has(f):
+				if not overlap.has(cname):
+					overlap[cname] = []
+				overlap[cname].append(f)
+	return overlap
 
 
 ## 从文件路径列表推断领域分组，返回 domain→files 映射
@@ -886,6 +943,9 @@ func _do_llm_request() -> bool:
 	var tool_calls: Array = _current_slot.accumulated_tool_calls
 	var content: String = _current_slot.accumulated_content
 	_last_reasoning = _current_slot.accumulated_reasoning
+	# 累计 token 用量 — 成本度量进执行轨迹
+	_usage_input_tokens += int(_current_slot.usage.get("input_tokens", 0))
+	_usage_output_tokens += int(_current_slot.usage.get("output_tokens", 0))
 	if content.length() > emitted_len:
 		progress_chunk.emit(content.substr(emitted_len))
 
@@ -945,6 +1005,22 @@ func _execute_tool_round(tool_calls: Array) -> void:
 
 		if tc_name in EXECUTION_TOOLS or tc_name in DELEGATION_TOOLS:
 			_exec_actions_this_run += 1
+
+		# 连续语法失败 → 注入一次定向提醒（user 消息才会被模型当回事）。
+		# 实测 MiniMax-M2.7 会连续 3 次写出同类型语法错误，每次浪费一整轮
+		var result_text: String = str(result.get("content", ""))
+		if tc_name in EXECUTION_TOOLS:
+			if ok:
+				_syntax_fail_streak = 0
+			elif "Parse Error" in result_text or "Syntax validation failed" in result_text:
+				_syntax_fail_streak += 1
+				if _syntax_fail_streak >= 2 and not _syntax_reminded:
+					_syntax_reminded = true
+					messages.append({
+						"role": "user",
+						"content": "Your last %d file modifications failed GDScript syntax validation. Before retrying, fix the root cause — the most common violations are: missing explicit types (`var x: int = 0`, never `var x = 0` or `:=`), missing return types (`-> void`), untyped for-loop iterators (`for i: int in range(...)`), and code placed before class-level declarations. Re-read the exact parse error above, rewrite the code with ALL type annotations in place, then retry." % _syntax_fail_streak,
+					})
+					_log("Syntax failure streak %d — injected targeted typing reminder" % _syntax_fail_streak)
 
 		if tc_name in ["build_scene", "build_script", "update_script", "write_file", "patch_scene", "configure_resource"] and ok:
 			_track_files(result)
@@ -1075,6 +1151,7 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 		await child.run(ticket)
 	runner.call_deferred()
 
+	_routed_this_run = true
 	return {"ok": true, "content": JSON.stringify({
 		"spawned": child_name,
 		"total_children": _children.size(),
@@ -1153,6 +1230,7 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 		await child.run(ticket)
 	runner.call_deferred()
 
+	_routed_this_run = true
 	return {"ok": true, "content": JSON.stringify({
 		"routed_to": child_name,
 		"task": task_desc.substr(0, 100),
@@ -1438,6 +1516,62 @@ func _log(msg: String) -> void:
 
 const SHARED_KNOWLEDGE_PATH := "res://addons/dotagent/banyan_agent/persistence/shared_knowledge.json"
 const MAX_KNOWLEDGE_ENTRIES := 200
+
+# ============ 领域技能注入 ============
+#
+# prompts/skills/*.md 每个文件首行以 "# triggers: kw1, kw2, ..." 声明触发关键词。
+# 任务文本命中任一关键词即把该技能全文注入为 system 消息（每次运行一次，随消息流每轮携带）。
+
+const SKILLS_DIR := "res://addons/dotagent/banyan_agent/prompts/skills/"
+static var _skills_cache: Array = []  # [{name, triggers, content}] — 全进程共享，只扫盘一次
+
+
+static func _load_skills() -> Array:
+	if not _skills_cache.is_empty():
+		return _skills_cache
+	var dir: DirAccess = DirAccess.open(SKILLS_DIR)
+	if dir == null:
+		return _skills_cache
+	for fname in dir.get_files():
+		if not fname.ends_with(".md"):
+			continue
+		var text: String = FileAccess.get_file_as_string(SKILLS_DIR.path_join(fname))
+		if text.is_empty():
+			continue
+		var triggers: Array = []
+		var content: String = text
+		var first_line: String = text.get_slice("\n", 0)
+		if first_line.begins_with("# triggers:"):
+			var raw: String = first_line.trim_prefix("# triggers:").strip_edges()
+			for t in raw.split(",", false):
+				var kw: String = t.strip_edges().to_lower()
+				if not kw.is_empty():
+					triggers.append(kw)
+			content = text.substr(text.find("\n") + 1).strip_edges()
+		_skills_cache.append({"name": fname, "triggers": triggers, "content": content})
+	return _skills_cache
+
+
+## 任务文本命中 triggers 的技能 → 拼成一条 system 消息（未命中返回空串）
+func _match_skills(task_text: String) -> String:
+	if task_text.is_empty():
+		return ""
+	var haystack: String = task_text.to_lower()
+	var matched: Array = []
+	for s in _load_skills():
+		for kw in s["triggers"]:
+			if haystack.contains(str(kw)):
+				matched.append(s)
+				break
+	if matched.is_empty():
+		return ""
+	var parts: Array = ["# Domain Skills (auto-injected based on your task — follow these conventions)"]
+	var names: Array = []
+	for s in matched:
+		parts.append("\n---\n" + str(s["content"]))
+		names.append(str(s["name"]))
+	_log("Skills injected: %s" % ", ".join(names))
+	return "\n".join(parts)
 
 
 func _save_shared_knowledge(entry: Dictionary) -> void:

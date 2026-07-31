@@ -183,6 +183,26 @@ func _generate_gameover() -> AudioStreamWAV:
 	return _generate_wave(1.2, freq, env)
 
 
+func _generate_combo() -> AudioStreamWAV:
+	# Exciting ascending arpeggio for combo milestones
+	var note_duration: float = 0.08
+	var notes: Array[float] = [523.25, 659.25, 783.99, 1046.50]  # C5, E5, G5, C6
+	var total_duration: float = note_duration * 4.0 + 0.2
+	var freq: Callable = func(t: float) -> float:
+		var note_index: int = int(t / note_duration)
+		if note_index >= notes.size():
+			note_index = notes.size() - 1
+		var note_t: float = fmod(t, note_duration) / note_duration
+		return notes[note_index] * (1.0 + note_t * 0.15)
+	var env: Callable = func(t: float, duration: float) -> float:
+		var note_index: int = int(t / note_duration)
+		var note_t: float = fmod(t, note_duration) / note_duration
+		if note_index >= notes.size():
+			return maxf(0.0, 0.5 - (t - note_duration * 4.0) / 0.2)
+		return maxf(0.0, 1.0 - note_t * 0.3)
+	return _generate_wave(total_duration, freq, env)
+
+
 func _generate_bgm() -> AudioStreamWAV:
 	var beat_duration: float = 0.5
 	var beats: int = 8

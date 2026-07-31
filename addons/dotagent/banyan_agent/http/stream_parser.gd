@@ -20,6 +20,7 @@ extends RefCounted
 
 var _buffer: String = ""
 var _accumulated_tool_calls: Array = []  # [{id, type, function: {name, arguments}}]
+var _usage: Dictionary = {"input_tokens": 0, "output_tokens": 0}  # 请求级 token 用量（成本度量）
 
 
 ## 向缓冲区追加原始数据
@@ -55,11 +56,26 @@ func reset() -> void:
 	_buffer = ""
 	_accumulated_tool_calls = []
 	_anthropic_tool_blocks = {}
+	_usage = {"input_tokens": 0, "output_tokens": 0}
+
+
+## 获取本次请求的 token 用量（message_start 给 input，message_delta 累计 output）
+func get_usage() -> Dictionary:
+	return _usage.duplicate()
 
 
 ## 获取累积的完整 tool_calls（在 stream 结束后调用）
+## 过滤空槽位：Anthropic 的 content block 索引是全局的（thinking/text 也占位），
+## 按索引补槽会产生 name/id 全空的幻影 tool_call — 若不过滤，
+## 下一轮请求会把 id="" 的 tool_use 块发回去，API 报 "duplicate tool_call id"
 func get_accumulated_tool_calls() -> Array:
-	return _accumulated_tool_calls.duplicate(true)
+	var result: Array = []
+	for tc in _accumulated_tool_calls:
+		var fn: Dictionary = tc.get("function", {})
+		if str(fn.get("name", "")).is_empty():
+			continue
+		result.append(tc)
+	return result
 
 
 # ============ 内部实现 ============
@@ -118,6 +134,11 @@ func _is_anthropic_event(obj: Dictionary) -> bool:
 # ============ OpenAI 格式解析 ============
 
 func _parse_openai_event(obj: Dictionary) -> Dictionary:
+	# 部分 OpenAI 兼容端点在流末尾附带 usage（stream_options.include_usage）
+	var usage_obj: Dictionary = obj.get("usage", {})
+	if not usage_obj.is_empty():
+		_usage["input_tokens"] = int(usage_obj.get("prompt_tokens", _usage["input_tokens"]))
+		_usage["output_tokens"] = int(usage_obj.get("completion_tokens", _usage["output_tokens"]))
 	var choices: Array = obj.get("choices", [])
 	if choices.is_empty():
 		return {}
@@ -170,6 +191,12 @@ func _parse_anthropic_event(event_type: String, obj: Dictionary) -> Dictionary:
 
 	match event_type:
 		"message_start":
+			# 元数据事件 — 提取 token 用量（input_tokens 在此给出）
+			var msg_obj: Dictionary = obj.get("message", {})
+			var usage_obj: Dictionary = msg_obj.get("usage", {})
+			if not usage_obj.is_empty():
+				_usage["input_tokens"] = int(usage_obj.get("input_tokens", 0))
+				_usage["output_tokens"] = int(usage_obj.get("output_tokens", 0))
 			return {}  # 元数据，不需要处理
 
 		"content_block_start":
@@ -257,8 +284,11 @@ func _parse_anthropic_event(event_type: String, obj: Dictionary) -> Dictionary:
 			return {}  # 块结束，不需要特殊处理
 
 		"message_delta":
-			# 包含 stop_reason
+			# 包含 stop_reason + 累计 token 用量
 			var delta2: Dictionary = obj.get("delta", {})
+			var usage2: Dictionary = obj.get("usage", {})
+			if not usage2.is_empty():
+				_usage["output_tokens"] = int(usage2.get("output_tokens", _usage["output_tokens"]))
 			var stop_reason: String = str(delta2.get("stop_reason", ""))
 			if not stop_reason.is_empty():
 				# 映射 Anthropic stop_reason 到 OpenAI finish_reason

@@ -207,10 +207,14 @@ Agent Tree 不是一个可视化工具，它是 Agent 本身。树是持久的�
 
 ## 十一、工具集
 
-所有节点共享：
-- **感知**（只读）：get_project_info, read_script, inspect_scene 等
-- **执行**（写入）：update_script, build_scene, write_file 等
-- **子节点**：spawn_child, wait_for_children, list_children
+所有节点共享同一套工具（31 个，定义在 `tools/definitions/node_tools.json`）：
+- **发现**（只读）：list_files, list_scenes, list_resources, get_project_architecture
+- **感知**（只读）：read_script, read_multiple_files, inspect_scene_structured, analyze_signal_flow 等
+- **执行**（写入）：update_script, build_scene, build_script, patch_scene, write_file 等
+- **可视验证**：screenshot_editor, run_scene_capture
+- **知识**：save_knowledge, query_knowledge, search_knowledge
+- **文件归属**：claim_files
+- **子节点**：spawn_child, route_to_child, wait_for_children, list_children
 
 ## 十二、信号与通信
 
@@ -232,30 +236,29 @@ addons/dotagent/
 ├── config.cfg                    ← 共享配置
 ├── config/                       ← 共享: ConfigManager + Locale
 ├── llm/                          ← 共享: LLMClient + providers + ModelFetcher
-├── tools/                        ← 共享: ToolRegistry + 11 工具模块
-├── log/                          ← 共享: SessionLog + EditorLogBuffer
+├── tools/                        ← 共享: ToolRegistry + 12 工具模块
+├── log/                          ← 共享: SessionLog + EditorLogBuffer + BanyanRunLog
 ├── ui/
 │   ├── dotagent_dock.tscn/gd     ← 共享 Dock（纯对话流，两种模式共用）
 │   └── dotagent_settings.tscn/gd ← 共享设置（含模式切换）
 ├── banyan_agent/
-│   ├── nodes/
-│   │   └── banyan_node.gd        ← 唯一的节点类（spawn_child 能力）
 │   ├── tree/
-│   │   ├── agent_tree.gd         ← Agent Tree 持久化（树结构 + 节点上下文）
-│   │   └── agent_node.gd         ← 单个节点的结构化上下文
-│   ├── http/                      ← HTTP 连接池
-│   ├── core/                      ← 调度器 + 执行器
-│   ├── context/                   ← 消息构建
-│   ├── knowledge/                 ← 跨会话知识库
-│   ├── persistence/               ← 报告/会话/树 持久化
-│   ├── tools/                     ← 工具加载 + 执行
+│   │   ├── agent_node.gd         ← 唯一的节点类（同构，ReAct 循环 + spawn_child 能力）
+│   │   └── agent_tree.gd         ← Agent Tree 持久化 + Prune 分析
+│   ├── http/                     ← HTTP 连接池 + 流式解析
+│   ├── context/                  ← 消息构建（滑动窗口）
+│   ├── persistence/              ← 运行时产物: agent_tree.json + shared_knowledge.json
+│   ├── sessions/                 ← 运行时产物: 会话消息 + run 日志
+│   ├── tools/                    ← 工具加载 + 执行路由 + definitions/node_tools.json
 │   ├── prompts/
-│   │   ├── node_prompt.md         ← 统一的系统 prompt
-│   │   └── skills/                ← 领域技能文件
-│   ├── signal/                    ← SignalBus 管理
+│   │   ├── node_prompt.md        ← 统一的系统 prompt
+│   │   ├── project_structure.md  ← 领域目录规范
+│   │   └── skills/               ← 领域技能文件（# triggers 关键词触发注入）
 │   └── ui/
 │       ├── banyan_bottom_panel.tscn/gd ← 底部面板（Agent Tree + Inspector + Prune + Log）
-│       └── banyan_session_popup.tscn/gd
+│       ├── banyan_session_popup.tscn/gd
+│       ├── connection_overlay.gd ← 连线绘制（贝塞尔 + slot 持久化）
+│       └── CustomNode/           ← 图节点卡片 + 四方向 slot
 ├── legacy_agent/                  ← Legacy 单智能体独有代码
 ```
 
@@ -317,8 +320,8 @@ textures/      ← 所有图片混在一起
 
 ---
 
-*文档版本: 4.0*
+*文档版本: 4.1*
 *创建日期: 2026-07-25*
-*最后更新: 2026-07-26 — AgentTree 持久化 + 底部面板重写 + 死代码清理*
+*最后更新: 2026-07-31 — 实现结构对齐实际代码（§13）+ 工具集更新为 31 个（§11）；代码侧已放开任意节点 spawn 推荐、恢复全深度树重载、接线 skills 关键词注入*
 
 > **相关文档**: [banyan_agent/AGENT_WORKFLOW.md](banyan_agent/AGENT_WORKFLOW.md) — 外部 AI agent 如何无头驱动 Banyan、读取执行轨迹、评估输出并迭代修复插件的工作手册（含真实诊断案例）。

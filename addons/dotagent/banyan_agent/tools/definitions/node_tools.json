@@ -19,7 +19,9 @@
               "description": "Name for the new child node"
             }
           },
-          "required": ["task_description"]
+          "required": [
+            "task_description"
+          ]
         }
       }
     },
@@ -40,7 +42,10 @@
               "description": "Clear description of what the child should do"
             }
           },
-          "required": ["child_name", "task_description"]
+          "required": [
+            "child_name",
+            "task_description"
+          ]
         }
       }
     },
@@ -88,17 +93,25 @@
           "properties": {
             "paths": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": {
+                "type": "string"
+              },
               "description": "Array of res:// paths you claim responsibility for"
             },
             "action": {
               "type": "string",
-              "enum": ["set", "add", "remove"],
+              "enum": [
+                "set",
+                "add",
+                "remove"
+              ],
               "description": "set = replace all managed files, add = append to existing, remove = remove from existing. Default: set",
               "default": "set"
             }
           },
-          "required": ["paths"]
+          "required": [
+            "paths"
+          ]
         }
       }
     },
@@ -158,7 +171,9 @@
           "properties": {
             "paths": {
               "type": "array",
-              "items": {"type": "string"},
+              "items": {
+                "type": "string"
+              },
               "description": "Array of res:// paths"
             },
             "max_chars_per_file": {
@@ -167,7 +182,9 @@
               "default": 50000
             }
           },
-          "required": ["paths"]
+          "required": [
+            "paths"
+          ]
         }
       }
     },
@@ -194,7 +211,9 @@
               "default": 0
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -214,15 +233,26 @@
               "type": "object",
               "description": "Root node definition: {type, name, properties}",
               "properties": {
-                "type": { "type": "string" },
-                "name": { "type": "string" },
-                "properties": { "type": "object" }
+                "type": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object"
+                }
               },
-              "required": ["type", "name"]
+              "required": [
+                "type",
+                "name"
+              ]
             },
             "scripts": {
               "type": "array",
-              "items": { "type": "object" },
+              "items": {
+                "type": "object"
+              },
               "description": "Script attachments: [{path, node_path}]"
             },
             "children": {
@@ -231,12 +261,16 @@
             },
             "sub_resources": {
               "type": "array",
-              "items": { "type": "object" },
+              "items": {
+                "type": "object"
+              },
               "description": "Sub-resources: [{id, type, properties}]"
             },
             "unique_names": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Node paths to mark as unique names"
             },
             "open_in_editor": {
@@ -245,7 +279,10 @@
               "default": true
             }
           },
-          "required": ["path", "root"]
+          "required": [
+            "path",
+            "root"
+          ]
         }
       }
     },
@@ -268,14 +305,24 @@
                 "properties": {
                   "op": {
                     "type": "string",
-                    "enum": ["set", "add", "remove", "add_sub_resource", "connect_signal", "reparent"]
+                    "enum": [
+                      "set",
+                      "add",
+                      "remove",
+                      "add_sub_resource",
+                      "connect_signal",
+                      "reparent"
+                    ]
                   }
                 }
               },
               "description": "Array of patch operations. Each op has different fields: set{node_path,properties}, add{parent_path,type,name,properties}, remove{node_path}, connect_signal{node_path,signal,target_path,method}, reparent{node_path,new_parent_path}"
             }
           },
-          "required": ["path", "operations"]
+          "required": [
+            "path",
+            "operations"
+          ]
         }
       }
     },
@@ -309,8 +356,15 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "params": { "type": "array", "items": { "type": "string" } }
+                  "name": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
                 }
               },
               "description": "Signal declarations"
@@ -320,10 +374,16 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "type": { "type": "string" },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
                   "default": {},
-                  "annotation": { "type": "string" }
+                  "annotation": {
+                    "type": "string"
+                  }
                 }
               },
               "description": "@export variable declarations"
@@ -333,9 +393,13 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
+                  "name": {
+                    "type": "string"
+                  },
                   "value": {},
-                  "type": { "type": "string" }
+                  "type": {
+                    "type": "string"
+                  }
                 }
               },
               "description": "const declarations"
@@ -345,9 +409,15 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "path": { "type": "string" },
-                  "type": { "type": "string" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  }
                 }
               },
               "description": "@onready node references"
@@ -357,11 +427,24 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" },
-                  "params": { "type": "array", "items": { "type": "string" } },
-                  "return_type": { "type": "string" },
-                  "body": { "type": "string" },
-                  "is_static": { "type": "boolean" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "return_type": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "is_static": {
+                    "type": "boolean"
+                  }
                 }
               },
               "description": "Method definitions with full body code"
@@ -372,7 +455,9 @@
               "default": true
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -398,7 +483,10 @@
               "default": true
             }
           },
-          "required": ["path", "content"]
+          "required": [
+            "path",
+            "content"
+          ]
         }
       }
     },
@@ -420,7 +508,11 @@
             },
             "action": {
               "type": "string",
-              "enum": ["create", "update", "create_or_update"],
+              "enum": [
+                "create",
+                "update",
+                "create_or_update"
+              ],
               "description": "Operation mode",
               "default": "create_or_update"
             },
@@ -429,7 +521,10 @@
               "description": "Resource type (required for create)"
             }
           },
-          "required": ["path", "properties"]
+          "required": [
+            "path",
+            "properties"
+          ]
         }
       }
     },
@@ -448,16 +543,36 @@
             "autoloads": {
               "type": "object",
               "properties": {
-                "add": { "type": "array", "items": { "type": "object" } },
-                "remove": { "type": "array", "items": { "type": "string" } }
+                "add": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               },
               "description": "Add or remove autoload singletons"
             },
             "input_actions": {
               "type": "object",
               "properties": {
-                "add": { "type": "array", "items": { "type": "object" } },
-                "remove": { "type": "array", "items": { "type": "string" } }
+                "add": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               },
               "description": "Add or remove input actions"
             },
@@ -483,7 +598,9 @@
               "description": "Script file path to read"
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -508,7 +625,11 @@
               "description": "Replacement text"
             }
           },
-          "required": ["path", "old_text", "new_text"]
+          "required": [
+            "path",
+            "old_text",
+            "new_text"
+          ]
         }
       }
     },
@@ -525,7 +646,9 @@
               "description": "Script file path to check"
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -583,7 +706,9 @@
               "default": false
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -600,7 +725,9 @@
               "description": "Resource file path (.tres, .res, or any Resource)"
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -649,7 +776,9 @@
               "default": false
             }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -707,16 +836,25 @@
             },
             "category": {
               "type": "string",
-              "enum": ["interface", "decision", "dependency", "lesson"],
+              "enum": [
+                "interface",
+                "decision",
+                "dependency",
+                "lesson"
+              ],
               "description": "Knowledge category. Default: 'general'"
             },
             "tags": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "description": "Optional tags for searching"
             }
           },
-          "required": ["summary"]
+          "required": [
+            "summary"
+          ]
         }
       }
     },
@@ -734,7 +872,12 @@
             },
             "category": {
               "type": "string",
-              "enum": ["interface", "decision", "dependency", "lesson"],
+              "enum": [
+                "interface",
+                "decision",
+                "dependency",
+                "lesson"
+              ],
               "description": "Filter by category"
             }
           },
@@ -760,11 +903,65 @@
             },
             "category": {
               "type": "string",
-              "enum": ["interface", "decision", "dependency", "lesson"],
+              "enum": [
+                "interface",
+                "decision",
+                "dependency",
+                "lesson"
+              ],
               "description": "Limit to a specific category"
             }
           },
-          "required": ["keyword"]
+          "required": [
+            "keyword"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Write a text file (.md, .txt, .json, .cfg, .csv, etc). Creates parent directories if needed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "res:// path"
+            },
+            "content": {
+              "type": "string",
+              "description": "File content to write"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_project_architecture",
+        "description": "Get project-level architecture overview: scenes, scripts, autoloads, dependencies, signal bus, statistics.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "include_dependencies": {
+              "type": "boolean",
+              "description": "Include scene dependency tree",
+              "default": true
+            },
+            "include_signal_map": {
+              "type": "boolean",
+              "description": "Include cross-module signal map",
+              "default": true
+            }
+          },
+          "required": []
         }
       }
     }

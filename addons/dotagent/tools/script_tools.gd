@@ -203,7 +203,7 @@ func _tool_replace_in_file(args: Dictionary) -> Dictionary:
 	f.close()
 
 	if not content.contains(old_text):
-		return _err("old_text not found in file (check whitespace / indentation / line endings)")
+		return _fuzzy_replace(path, content, old_text, new_text)
 
 	_backup.backup(path)
 
@@ -221,6 +221,134 @@ func _tool_replace_in_file(args: Dictionary) -> Dictionary:
 			return _err("Replace reverted — script has parse error: " + err_msg)
 
 	return _ok("Replaced in %s (%d — %d chars)" % [path, old_text.length(), new_text.length()])
+
+
+## old_text 精确匹配失败时的自愈路径。
+## 实测 LLM 高频失败原因是缩进写错（空格/制表符/层级），文件内容其实是对的。
+## 策略：按行去空白归一化后滑动窗口匹配 ——
+##   唯一命中 → 以文件实际缩进为基准重写 new_text 并应用（省一整轮重试）
+##   多义/未命中 → 返回最相似区域的真实文本（含行号），下轮替换即可精确命中（省一次 read）
+func _fuzzy_replace(path: String, content: String, old_text: String, new_text: String) -> Dictionary:
+	var file_lines: Array = Array(content.split("\n"))
+	var old_lines := old_text.strip_edges().split("\n")
+	var norm_old: Array = []
+	for l in old_lines:
+		norm_old.append(l.strip_edges())
+	var n := norm_old.size()
+	if n == 0:
+		return _err("old_text not found in file (check whitespace / indentation / line endings)")
+
+	# 滑动窗口：归一化后逐行全等的连续区间（空行不参与比较）
+	var matches: Array = []
+	for i in range(maxi(file_lines.size() - n + 1, 0)):
+		var same := true
+		for j in range(n):
+			if norm_old[j].is_empty():
+				continue
+			if file_lines[i + j].strip_edges() != norm_old[j]:
+				same = false
+				break
+		if same:
+			matches.append(i)
+
+	if matches.size() == 1:
+		var start: int = matches[0]
+		# 目标区域基准缩进 = 首个非空行的前导空白
+		var base_indent := ""
+		for j in range(n):
+			if not file_lines[start + j].strip_edges().is_empty():
+				base_indent = _leading_ws(file_lines[start + j])
+				break
+		# 缩进单位探测：文件区域 vs new_text 各自的单级缩进（如 "\t" vs "    "），
+		# 按"层级"重建 new_text — 模型用错缩进风格时自动转换成文件风格
+		var region_lines: Array = file_lines.slice(start, start + n)
+		var file_unit: String = _indent_unit(region_lines, base_indent)
+		var new_lines := new_text.strip_edges().split("\n")
+		var new_origin := ""
+		for l in new_lines:
+			if not l.strip_edges().is_empty():
+				new_origin = _leading_ws(l)
+				break
+		var new_unit: String = _indent_unit(Array(new_lines), new_origin)
+		var rebuilt: Array = []
+		for l in new_lines:
+			var stripped: String = l.strip_edges()
+			if stripped.is_empty():
+				rebuilt.append("")
+				continue
+			var ws: String = _leading_ws(l)
+			var indent := ws
+			if not file_unit.is_empty() and not new_unit.is_empty():
+				# 把 new_text 的层级（以其自身单位计）翻译成文件的单位
+				var level := 0
+				var rest := ws
+				while rest.begins_with(new_unit):
+					level += 1
+					rest = rest.substr(new_unit.length())
+				indent = file_unit.repeat(level) + rest  # rest 通常是空；混合缩进时保留残余
+			elif ws.begins_with(new_origin):
+				indent = ws.substr(new_origin.length())
+			rebuilt.append(base_indent + indent + stripped)
+		var final_lines: Array = []
+		final_lines.append_array(file_lines.slice(0, start))
+		final_lines.append_array(rebuilt)
+		final_lines.append_array(file_lines.slice(start + n))
+
+		_backup.backup(path)
+		var fw := FileAccess.open(path, FileAccess.WRITE)
+		if fw == null:
+			return _err("Cannot write: " + error_string(FileAccess.get_open_error()))
+		fw.store_string("\n".join(final_lines))
+		fw.close()
+		if path.ends_with(".gd"):
+			var err_msg := _validate_gdscript(path)
+			if not err_msg.is_empty():
+				_restore_from_backup(path)
+				return _err("Fuzzy replace reverted — script has parse error: " + err_msg)
+		return _ok("Replaced in %s via fuzzy match (%d lines, indentation auto-corrected to file's actual style). No retry needed." % [path, n])
+
+	# 未命中或多义：找相似度最高的窗口，把真实文本喂回去
+	var best_start := 0
+	var best_score := -1
+	for i in range(maxi(file_lines.size() - n + 1, 1)):
+		var score := 0
+		for j in range(n):
+			if norm_old[j].is_empty():
+				continue
+			if i + j < file_lines.size() and file_lines[i + j].strip_edges() == norm_old[j]:
+				score += 1
+		if score > best_score:
+			best_score = score
+			best_start = i
+	var lo := maxi(best_start - 2, 0)
+	var hi := mini(best_start + n + 2, file_lines.size())
+	var snippet: Array = []
+	for i in range(lo, hi):
+		snippet.append("%4d: %s" % [i + 1, file_lines[i]])
+	var hint := "old_text not found verbatim. Closest region (%d/%d lines match after whitespace normalization). ACTUAL FILE CONTENT:\n%s\nRetry with old_text copied EXACTLY from above (tabs included)." % [best_score, n, "\n".join(snippet)]
+	if matches.size() > 1:
+		hint = "old_text matches %d regions after whitespace normalization — ambiguous, add more context lines to disambiguate. " % matches.size() + hint
+	return _err(hint)
+
+
+## 提取行前导空白（空格/制表符）
+func _leading_ws(s: String) -> String:
+	var i := 0
+	while i < s.length() and (s[i] == " " or s[i] == "\t"):
+		i += 1
+	return s.substr(0, i)
+
+
+## 探测一组行的单级缩进单位：首条比 base 更深的行的前导空白差值
+func _indent_unit(lines: Array, base: String) -> String:
+	for l in lines:
+		var s := str(l)
+		if s.strip_edges().is_empty():
+			continue
+		var ws: String = _leading_ws(s)
+		if ws.length() > base.length() and ws.begins_with(base):
+			return ws.substr(base.length())
+	return ""
 
 
 ## Validate GDScript syntax. Fast path: GDScript.new() + reload() from temp file.

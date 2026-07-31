@@ -62,6 +62,22 @@ text = "☀️"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="ComboLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+layout_mode = 2
+text = "x0"
+
+[node name="KillsLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "KILLS: 0"
+
+[node name="BestKillsLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "BEST: 0"
+
 [node name="BossHealthContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2

@@ -138,15 +138,20 @@ func _main() -> void:
 	_root_node.system_prompt = prompt_text
 	_root_node.tool_definitions = node_tools
 
-	# 加载已有子节点（复刻 plugin.run_banyan）
-	for nid in _agent_tree.get_all_nodes():
-		var n: AgentNode = _agent_tree.get_all_nodes()[nid]
-		if n.parent_id == "Root" and n.node_id != "Root":
-			_root_node._children[n.node_id] = n
-			n._parent_ref = weakref(_root_node)
-			_root_node._pending_children[n.node_id] = true
+	# 恢复完整层级（与 plugin.run_banyan 一致）— 按 parent_id 挂回各自父节点，不限深度
+	var all_nodes: Dictionary = _agent_tree.get_all_nodes()
+	for nid in all_nodes:
+		var n: AgentNode = all_nodes[nid]
+		if n.node_id == _root_node.node_id or n.parent_id.is_empty():
+			continue
+		var parent: AgentNode = all_nodes.get(n.parent_id)
+		if parent == null:
+			continue
+		parent._children[n.node_id] = n
+		n._parent_ref = weakref(parent)
+		parent._pending_children[n.node_id] = true
 	if _root_node._children.size() > 0:
-		print("[SETUP] 恢复子节点: %s" % str(_root_node._children.keys()))
+		print("[SETUP] 恢复树: %d 节点, Root 直接子节点: %s" % [all_nodes.size(), str(_root_node._children.keys())])
 
 	# 5. 信号 + 运行
 	_root_node.progress_done.connect(_on_done)
@@ -219,6 +224,8 @@ func _attach_monitor(node: AgentNode) -> void:
 	node.progress_done.connect(func():
 		_touch_activity()
 		_monitor_print(nid, "完成（%d 轮）" % node.get_round_count())
+		# Root 完成后若子节点仍在跑（route 后未等待），等它们收尾再结束运行
+		_try_finish()
 	)
 	node.progress_error.connect(func(err: String):
 		_touch_activity()
@@ -263,7 +270,8 @@ func _state_name(s: int) -> String:
 func _on_done() -> void:
 	print("\n────────────────────────────────────────")
 	print("[DONE] Root 完成")
-	_finish_run()
+	_root_finished = true
+	_try_finish()
 
 
 func _on_error(err: String) -> void:
@@ -271,7 +279,37 @@ func _on_error(err: String) -> void:
 	print("[ERROR] Root 失败: %s" % err)
 	_failed = true
 	_fail_msg = err
+	_root_finished = true
+	_try_finish()
+
+
+var _root_finished: bool = false
+var _waiting_children_logged: bool = false
+
+
+## Root 已结束 → 检查整棵树是否还有活跃节点，有则等它们收尾
+## （route_to_child 后 Root 可能不等待就收工；直接保存会截断子节点的知识与用量数据）
+func _try_finish() -> void:
+	if _done or not _root_finished:
+		return
+	var running: Array = []
+	_collect_running(_root_node, running)
+	if not running.is_empty():
+		if not _waiting_children_logged:
+			_waiting_children_logged = true
+			print("[WAIT] 子节点仍在运行，等待收尾: %s" % str(running))
+		return
 	_finish_run()
+
+
+func _collect_running(node: AgentNode, out: Array) -> void:
+	if node == null:
+		return
+	# RUNNING/LLM_REQUEST/TOOL_EXEC/RETRYING 视为活跃
+	if node.node_state in [1, 2, 3, 6]:
+		out.append(node.node_id)
+	for cname in node._children:
+		_collect_running(node._children[cname], out)
 
 
 func _finish_run() -> void:
@@ -288,8 +326,10 @@ func _finish_run() -> void:
 	var result: Dictionary = run_log.write(trace)
 	print("\n[RUNLOG] %s" % str(result))
 
-	# 持久化树
+	# 持久化树 — 先把运行时 spawn 的子节点收进树（与 plugin._sync_agent_tree 一致），
+	# 否则无头跑出的子节点在保存时全部丢失（曾出现 "Agent tree saved: 1 nodes"）
 	if _agent_tree:
+		_agent_tree.collect_runtime_nodes(_root_node)
 		_agent_tree.save()
 		print("[TREE] 已保存，节点数: %d" % _agent_tree.get_node_count())
 

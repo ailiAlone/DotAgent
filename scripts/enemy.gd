@@ -36,8 +36,10 @@ func take_hit() -> void:
 	var gm: Node = _gm()
 	if gm != null:
 		gm.add_score(SCORE_VALUE)
-		if gm.has_method("record_enemy_killed"):
-			gm.record_enemy_killed(false)
+		if gm.has_method("increment_combo"):
+			gm.increment_combo()
+		if gm.has_method("record_kill"):
+			gm.record_kill()
 	queue_free()
 
 

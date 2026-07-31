@@ -85,6 +85,25 @@
 			"summary": "WeatherSystem autoload 需要实现: get_weather() -> String, get_spawn_multiplier() -> float",
 			"tags": [],
 			"timestamp": "2026-07-30T17:30:00"
+		},
+		{
+			"category": "interface",
+			"node_id": "Game",
+			"summary": "game_manager.gd 新增胜利系统接口：`signal victory_requested(final_kills: int)` 和 `func trigger_victory() -> void`。Boss 击败时调用 `gm.trigger_victory()` 触发胜利画面，信号携带最终击杀数。",
+			"tags": [],
+			"timestamp": "2026-07-31T17:05:40"
+		},
+		{
+			"category": "interface",
+			"node_id": "Ui",
+			"summary": "ComboLabel 在连击数达到 10 的倍数时触发金色闪烁动画（`_flash_combo_gold`），包括颜色闪白变金再恢复白色，以及弹性缩放效果。检测逻辑在 `_on_combo_changed` 中实现。",
+			"tags": [
+				"combo",
+				"hud",
+				"animation",
+				"flash"
+			],
+			"timestamp": "2026-07-31T17:14:40"
 		}
 	]
 }

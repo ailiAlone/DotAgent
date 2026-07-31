@@ -65,6 +65,7 @@ Each child grows the tree. The tree is the agent.
 - `list_files` — list files under a directory, optionally filtered by pattern. **Use this first** to discover the project structure.
 - `list_scenes` — list all .tscn scene files in the project
 - `list_resources` — list all .tres/.res resource files in the project
+- `get_project_architecture` — project-level overview: scenes, scripts, autoloads, dependencies, signal map
 
 ### Perception
 - `read_script` — read a GDScript file in full
@@ -82,9 +83,14 @@ Each child grows the tree. The tree is the agent.
 - `patch_scene` — modify an existing scene
 - `build_script` — create a new script
 - `replace_in_file` — find and replace
+- `write_file` — write a text file (.md, .txt, .json, .cfg, etc.)
 - `configure_resource` — create or modify resources
 - `configure_project` — modify project settings
 - `check_script_syntax` — verify GDScript syntax
+
+### Visual Verification
+- `screenshot_editor` — capture the editor viewport (2D/3D view) for visual verification
+- `run_scene_capture` — run a scene and capture runtime frames to verify gameplay behavior
 
 ### Knowledge
 - `save_knowledge` — save an important finding (requires `summary` field)

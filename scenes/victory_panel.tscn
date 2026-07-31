@@ -1,0 +1,31 @@
+[gd_scene format=3]
+
+[node name="VictoryPanel" type="Control"]
+visible = false
+layout_mode = 3
+anchors_preset = 0
+script = {
+"__uuid__": "c9a5e15a6c8d4c5f8e9b2c3d4e5f6a7b"
+}
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+color = Color(0, 0, 0, 1)
+
+[node name="CenterPanel" type="Panel" parent="."]
+layout_mode = 1
+
+[node name="VictoryTitle" type="Label" parent="CenterPanel"]
+layout_mode = 1
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 48
+text = "VICTORY"
+
+[node name="KillsLabel" type="Label" parent="CenterPanel"]
+layout_mode = 1
+text = "KILLS: 0"
+
+[node name="PlayAgainButton" type="Button" parent="CenterPanel"]
+unique_name_in_owner = true
+layout_mode = 1
+text = "Play Again"

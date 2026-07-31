@@ -73,11 +73,9 @@ func get_legacy_tools_matching(tool_registry, names: Array) -> Array:
 	return matched
 
 
-## 预加载所有层的工具定义
+## 预加载工具定义（当前只有统一的 node 层 — 所有节点同构共享同一套工具）
 func preload_all() -> void:
-	get_tools("root")
-	get_tools("branch")
-	get_tools("worker")
+	get_tools("node")
 
 
 ## 清除缓存

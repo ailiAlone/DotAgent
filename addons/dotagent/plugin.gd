@@ -414,15 +414,23 @@ func run_banyan(user_request: String, base_url: String = "", api_key: String = "
 	_root.system_prompt = prompt_text
 	_root.tool_definitions = node_tools
 
-	# 从 AgentTree 加载已有子节点到 Root — 让 route_to_child 能找到它们
-	for nid in _agent_tree.get_all_nodes():
-		var n: AgentNode = _agent_tree.get_all_nodes()[nid]
-		if n.parent_id == "Root" and n.node_id != "Root":
-			_root._children[n.node_id] = n
-			n._parent_ref = weakref(_root)  # 轮数预算申请通道
-			_root._pending_children[n.node_id] = true  # 标记为已完成（上次的状态）
+	# 从 AgentTree 恢复完整层级 — 按 parent_id 挂回各自父节点（不限深度），
+	# 让 route_to_child / wait_for_children / collect_runtime_nodes 在任意深度可用。
+	# 架构文档第九节：反对叶子节点限制，任意节点可 spawn，树深度不固定。
+	var all_nodes: Dictionary = _agent_tree.get_all_nodes()
+	for nid in all_nodes:
+		var n: AgentNode = all_nodes[nid]
+		if n.node_id == _root.node_id or n.parent_id.is_empty():
+			continue
+		var parent: AgentNode = all_nodes.get(n.parent_id)
+		if parent == null:
+			_logger.append("CTX", "Orphan node '%s' (parent '%s' missing) — skipped" % [n.node_id, n.parent_id])
+			continue
+		parent._children[n.node_id] = n
+		n._parent_ref = weakref(parent)  # 轮数预算申请通道
+		parent._pending_children[n.node_id] = true  # 标记为已完成（上次的状态）
 	if _root._children.size() > 0:
-		_logger.append("CTX", "Loaded %d existing children for Root" % _root._children.size())
+		_logger.append("CTX", "Restored tree: %d nodes, %d direct children of Root" % [all_nodes.size(), _root._children.size()])
 
 	# 注入对话上下文 — 多轮对话支持
 	_messages.append({"role": "user", "content": user_request})
