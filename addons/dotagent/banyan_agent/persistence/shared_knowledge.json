@@ -104,6 +104,113 @@
 				"flash"
 			],
 			"timestamp": "2026-07-31T17:14:40"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "敌人 Spawn 机制：基础间隔 2 秒，每 30 秒一波次，敌人速度随波次公式 `1.0 + (0.15 × (wave - 1))` 增长。天气系统可调节 spawn_rate_multiplier。Boss 激活期间停止刷普通怪。",
+			"tags": [],
+			"timestamp": "2026-08-01T11:41:11"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "Boss 出现规律：每第 5 波触发一次（150 秒首 boss），波次间隔 30 秒。3 阶段机制：Phase 3 血量>66%（攻击间隔 1.2s），Phase 2 33-66%（0.9s），Phase 1 <33%（0.6s）。追踪子弹，阶段越高子弹越多（1→3→5 发）。",
+			"tags": [],
+			"timestamp": "2026-08-01T11:41:11"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "玩家生命系统：初始 3 条命（MAX_LIVES=3），受到普通敌人伤害扣 1 命，Boss 子弹扣 3 命。护盾提供一次性免疫（持续 5 秒，冷却 10 秒）。慢动作道具提供短暂无敌窗口（持续 3 秒）。",
+			"tags": [],
+			"timestamp": "2026-08-01T11:41:11"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "Powerup 道具类型：HEALTH（回复 1 命）、SHIELD（护盾）、WEAPON_UP（武器升级 1-3 级）、SCORE（×2 分数）、SLOWMO（慢动作）、INVISIBLE（无敌）。碰撞检测方式：Area2D body_entered 信号，player 需在 \"powerup\" group。",
+			"tags": [],
+			"timestamp": "2026-08-01T11:41:11"
+		},
+		{
+			"category": "lesson",
+			"node_id": "Root",
+			"summary": "难度曲线分析：早期（波 1-4）主要是熟悉敌人追击行为；中期（波 5+）Boss 战引入多阶段机制；天气系统增加变数（雨/雪/雾影响速度和能见度）。玩家保命手段有限（3 命+护盾+慢动作），无常规血量回复。",
+			"tags": [],
+			"timestamp": "2026-08-01T11:41:11"
+		},
+		{
+			"category": "interface",
+			"node_id": "Ui",
+			"summary": "HUD ComboLabel 文字颜色改为金色 Color(1.0, 0.84, 0.0, 1.0)：场景中设置 theme_override_colors/font_color，代码中在 _ready() 添加 add_theme_color_override",
+			"tags": [],
+			"timestamp": "2026-08-01T11:42:42"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "Magnet powerup implementation: 10% spawn chance as separate scene, 5-second duration, attracts all powerups toward player at 400px/s. HUD shows timer countdown via show_magnet()/hide_magnet()/update_magnet_timer().",
+			"tags": [
+				"powerup",
+				"magnet",
+				"game-mechanics"
+			],
+			"timestamp": "2026-08-01T11:48:09"
+		},
+		{
+			"category": "interface",
+			"node_id": "Root",
+			"summary": "SplitBullet: Player bullet that splits into 2 smaller cyan bullets at ±30° when hitting enemies. Speed 500, split bullets at 450. Reference via res://scenes/split_bullet.tscn",
+			"tags": [],
+			"timestamp": "2026-08-01T12:58:08"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "武器升级路径分析：\n- 经验阈值: [5, 10, 15]，最大等级3\n- L1→L2需要5经验，L2→L3需要10经验（共15经验满级）\n- 升级效果: L1单发，L2双发(±8px)，L3三发(±15px,0)\n- 子弹速度600px/s，黄色圆形\n- 问题: 代码只用基础bullet_scene，homing_bullet和split_bullet未被集成到升级系统",
+			"tags": [
+				"player",
+				"weapon",
+				"upgrade",
+				"progression"
+			],
+			"timestamp": "2026-08-01T12:59:25"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Root",
+			"summary": "经验获取机制：\n- 每次击杀敌人获得100分+1经验\n- 每5波出现Boss，击杀后不生成普通敌人（敌人减少）\n- 波次间隔30秒，每波敌人速度+15%\n- 天气系统影响敌人生成速率(snow减慢生成rain加快)\n- 击杀速率 = 武器等级(1-3发) × 射击冷却(0.5s) × 敌人存活率",
+			"tags": [
+				"experience",
+				"kills",
+				"wave",
+				"weather"
+			],
+			"timestamp": "2026-08-01T12:59:25"
+		},
+		{
+			"category": "dependency",
+			"node_id": "Root",
+			"summary": "Powerup/Magnet组合效果分析：\n- heal: 即时恢复1生命\n- rapid_fire: 射击冷却0.5s→0.15s(5秒)，火力大幅提升\n- shield: 3秒无敌保护\n- weapon_upgrade: 直接升一级武器\n- magnet: 5秒内powerup被吸引向玩家移动(速度400px/s)\n- Magnet不加速经验获取，只加速道具收集\n- 组合价值: magnet+rapid_fire最大化清怪效率",
+			"tags": [
+				"powerup",
+				"magnet",
+				"synergy",
+				"combos"
+			],
+			"timestamp": "2026-08-01T12:59:25"
+		},
+		{
+			"category": "lesson",
+			"node_id": "Root",
+			"summary": "子弹类型独立性问题：\n- bullet.gd: 普通子弹(600px/s, 黄色)\n- homing_bullet.gd: 追踪子弹(400px/s, 金色, 2rad/s转向)\n- split_bullet.gd: 分裂子弹(500px/s, 青色, 命中分裂±30°)\n- 三种子弹完全独立，未接入玩家武器升级系统\n- game.gd的_handle_shooting()只用bullet_scene\n- 如果需要高级子弹作为升级选项，需修改game.gd并添加场景引用",
+			"tags": [
+				"bullets",
+				"architecture",
+				"tech_debt"
+			],
+			"timestamp": "2026-08-01T12:59:25"
 		}
 	]
 }

@@ -124,7 +124,7 @@ func get_tool_definitions() -> Array:
 				},
 				"input_actions": {
 					"type": "object",
-					"description": "Input action management",
+					"description": "Input action management (持久化到 project.godot). add 条目必须含 name 字段，例: {\"add\": [{\"name\": \"sprint\", \"deadzone\": 0.5, \"events\": [{\"type\": \"key\", \"keycode\": \"KEY_SHIFT\"}]}]}",
 					"properties": {
 						"add": {"type": "array", "items": {"type": "object"}},
 						"remove": {"type": "array", "items": {"type": "string"}}
@@ -158,10 +158,10 @@ func _tool_build_scene(args: Dictionary) -> Dictionary:
 		return _err("Scene already exists: " + path + ". Use patch_scene to modify.")
 
 	var root_def: Dictionary = args.get("root", {}) if args.get("root") is Dictionary else {}
-	var children_defs: Array = args.get("children", []) if args.get("children") is Array else []
-	var sub_resources_defs: Array = args.get("sub_resources", []) if args.get("sub_resources") is Array else []
-	var scripts_defs: Array = args.get("scripts", []) if args.get("scripts") is Array else []
-	var unique_names: Array = args.get("unique_names", []) if args.get("unique_names") is Array else []
+	var children_defs: Array = _as_array(args.get("children", []))
+	var sub_resources_defs: Array = _as_array(args.get("sub_resources", []))
+	var scripts_defs: Array = _as_array(args.get("scripts", []))
+	var unique_names: Array = _as_array(args.get("unique_names", []))
 	var open_in_editor: bool = args.get("open_in_editor", true)
 
 	# Phase 1: Create scripts first (scenes may reference them)
@@ -336,10 +336,12 @@ func _tool_patch_scene(args: Dictionary) -> Dictionary:
 	if not FileAccess.file_exists(path):
 		return _err("Scene not found: " + path)
 
-	var operations_raw = args.get("operations", [])
-	var operations: Array = operations_raw if operations_raw is Array else []
+	var operations: Array = _as_array(args.get("operations", []))
 	if operations.is_empty():
-		return _err("No operations provided")
+		# 附带原始输入预览 — 模型能看到自己发错了什么并自我修正（此前裸报错
+		# "No operations provided"，R19 同一错误连犯 3 次）
+		var raw_preview: String = str(args.get("operations", "")).substr(0, 300)
+		return _err("No operations provided (operations must be an array of {op, ...} objects, NOT a JSON string). Received: %s" % raw_preview)
 
 	# Load scene
 	var packed = load(path) as PackedScene
@@ -432,12 +434,41 @@ func _op_set(scene: Node, op_def: Dictionary, idx: int) -> Dictionary:
 		return {"op": idx, "status": "error", "detail": "Node not found: " + node_path}
 
 	var applied: Array = []
+	var readback: Dictionary = {}
 	for key in props:
-		var val = _parse_property_value(props[key])
-		node.set(key, val)
+		var perr: String = _apply_node_property(node, key, props[key])
+		if not perr.is_empty():
+			return {"op": idx, "status": "error", "detail": perr}
 		applied.append(key)
+		# 回读实际生效值 — 模型无需再花一轮 inspect 确认；
+		# 设错属性路径（如 Label 颜色应是 theme_override_colors/font_color）时立即可见
+		var rv = node.get(key)
+		readback[key] = str(rv).substr(0, 80) if rv != null else "<null>"
 
-	return {"op": idx, "status": "ok", "detail": "Set %s on %s" % [str(applied), node_path]}
+	return {"op": idx, "status": "ok", "detail": "Set %s on %s" % [str(applied), node_path], "readback": readback}
+
+
+## 统一的节点属性应用 — script 属性必须解析为 Script 资源。
+## 直接把字符串/字典 set 进 script 会被场景序列化器原样落盘（Variant 文本），
+## 场景从此挂空 — 实测全项目 17 个场景的 script 曾集体是 String/Dictionary。
+## 返回 "" 成功，否则错误信息。
+func _apply_node_property(node: Node, key: String, raw: Variant) -> String:
+	if key == "script":
+		var spath: String = ""
+		if raw is String:
+			spath = raw
+		elif raw is Dictionary:
+			spath = str(raw.get("path", ""))
+		if spath.is_empty() or not FileAccess.file_exists(spath):
+			return "script 需为存在的脚本路径（字符串或 {\"path\": ...}），收到: %s" % str(raw).substr(0, 120)
+		var sres = load(spath)
+		if sres == null or not (sres is Script):
+			return "无法作为脚本加载: " + spath
+		node.set_script(sres)
+		return ""
+	var val = _parse_property_value(raw)
+	node.set(key, val)
+	return ""
 
 
 func _op_add(scene: Node, op_def: Dictionary, idx: int) -> Dictionary:
@@ -461,8 +492,10 @@ func _op_add(scene: Node, op_def: Dictionary, idx: int) -> Dictionary:
 	new_node.owner = scene
 
 	for key in props:
-		var val = _parse_property_value(props[key])
-		new_node.set(key, val)
+		var perr: String = _apply_node_property(new_node, key, props[key])
+		if not perr.is_empty():
+			new_node.free()
+			return {"op": idx, "status": "error", "detail": perr}
 
 	return {"op": idx, "status": "ok", "detail": "Added %s '%s' under '%s'" % [node_type, node_name, parent.name]}
 
@@ -646,6 +679,7 @@ func _tool_configure_project(args: Dictionary) -> Dictionary:
 
 	var applied: Array = []
 	var errors: Array = []
+	var warnings: Array = []
 
 	# Project settings
 	for key in settings:
@@ -690,29 +724,58 @@ func _tool_configure_project(args: Dictionary) -> Dictionary:
 	for entry in input_add:
 		var action_name: String = str(entry.get("name", ""))
 		if action_name.is_empty():
-			errors.append("Input action add: name required")
+			# 兼容模型常用别名 "action"（曾因此连续失败 2 轮后绕过工具手改 project.godot）
+			action_name = str(entry.get("action", ""))
+		if action_name.is_empty():
+			errors.append("Input action add: name required — 例: {\"name\": \"sprint\", \"events\": [{\"type\": \"key\", \"keycode\": \"KEY_SHIFT\"}]}")
 			continue
 		if not InputMap.has_action(action_name):
 			InputMap.add_action(action_name)
+		InputMap.action_set_deadzone(action_name, float(entry.get("deadzone", 0.5)))
 		# Add events
+		var persist_events: Array = []
 		var events: Array = entry.get("events", [])
+		var unparsed_events: int = 0
 		for ev_def in events:
-			var ev_type: String = str(ev_def.get("type", ""))
+			# 大小写/风格宽容：type 可能是 "Key"/"key"，也可能用 "class": "InputEventKey"
+			#（R13 实测模型给 "type": "Key" 导致按键被静默丢弃，持久化出空 events）
+			var ev_type: String = str(ev_def.get("type", ev_def.get("class", ""))).to_lower()
 			var ev: InputEvent = null
-			if ev_type == "key":
+			if ev_type == "key" or ev_type == "inputeventkey":
 				var key_ev := InputEventKey.new()
+				var keycode_val: int = 0
 				var keycode_str: String = str(ev_def.get("keycode", ""))
 				if keycode_str.begins_with("KEY_"):
-					key_ev.keycode = OS.find_keycode_from_string(keycode_str)
-				else:
-					key_ev.keycode = int(ev_def.get("keycode", 0))
+					keycode_val = OS.find_keycode_from_string(keycode_str)
+				elif not keycode_str.is_empty():
+					keycode_val = int(keycode_str)
+				if keycode_val != 0:
+					key_ev.keycode = keycode_val
+				elif int(ev_def.get("physical_keycode", 0)) != 0:
+					# 兼容物理键位字段（模型偶尔给 key_label/physical_keycode）
+					key_ev.physical_keycode = int(ev_def.get("physical_keycode", 0))
+				elif int(ev_def.get("key_label", 0)) != 0:
+					key_ev.keycode = int(ev_def.get("key_label", 0))
 				ev = key_ev
-			elif ev_type == "mouse_button":
+			elif ev_type == "mouse_button" or ev_type == "inputeventmousebutton":
 				var mouse_ev := InputEventMouseButton.new()
 				mouse_ev.button_index = int(ev_def.get("button_index", 1))
 				ev = mouse_ev
 			if ev != null:
 				InputMap.action_add_event(action_name, ev)
+				persist_events.append(ev)
+			else:
+				unparsed_events += 1
+		# 提供了 events 却一个都没解析出来 → 警告而非静默成功
+		#（否则模型以为按键已绑定，实际持久化了空 events）
+		if not events.is_empty() and persist_events.is_empty():
+			warnings.append("input_add:%s — %d 个 events 未能解析（type 需为 \"key\"/\"mouse_button\"），动作已创建但没有绑定按键" % [action_name, unparsed_events])
+		# 持久化到 project.godot — InputMap 只活在本进程，仅 ProjectSettings.save() 才会落盘
+		#（此前只写 InputMap，动作重启即丢，模型被迫绕过工具直接改 project.godot）
+		ProjectSettings.set_setting("input/" + action_name, {
+			"deadzone": float(entry.get("deadzone", 0.5)),
+			"events": persist_events,
+		})
 		applied.append("input_add:" + action_name)
 
 	# Input actions — remove
@@ -722,6 +785,8 @@ func _tool_configure_project(args: Dictionary) -> Dictionary:
 		if InputMap.has_action(name_str):
 			InputMap.erase_action(name_str)
 			applied.append("input_remove:" + name_str)
+		if ProjectSettings.has_setting("input/" + name_str):
+			ProjectSettings.set_setting("input/" + name_str, null)
 
 	# Save project settings
 	ProjectSettings.save()
@@ -730,6 +795,7 @@ func _tool_configure_project(args: Dictionary) -> Dictionary:
 		"type": "configure_project_result",
 		"applied": applied,
 		"errors": errors,
+		"warnings": warnings,
 	}
 
 	if not errors.is_empty():

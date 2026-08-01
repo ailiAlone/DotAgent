@@ -1,7 +1,6 @@
 extends CanvasLayer
 
 ## Head-up display showing score, lives, high score, current wave, weapon level, boss health, kill feedback and combos.
-
 const Singleton: String = "GameManager"
 
 signal pause_requested
@@ -23,6 +22,10 @@ signal resume_requested
 @onready var combo_label: Label = %ComboLabel
 @onready var kills_label: Label = %KillsLabel
 @onready var best_kills_label: Label = %BestKillsLabel
+@onready var sprint_label: Label = %SprintLabel
+@onready var boss_warning_label: Label = %BossWarningLabel
+@onready var slow_mo_label: Label = %SlowMoLabel
+@onready var magnet_label: Label = %MagnetLabel
 
 @onready var achievement_popup_scene: PackedScene = preload("res://scenes/achievement_popup.tscn")
 @onready var victory_panel_scene: PackedScene = preload("res://scenes/victory_panel.tscn")
@@ -61,6 +64,10 @@ func _ready() -> void:
 	_update_boss_health_visibility(false)
 	_update_combo_label(0)
 	
+	# Initialize boss warning (hidden by default)
+	if boss_warning_label != null:
+		boss_warning_label.visible = false
+	
 	if resume_button != null:
 		resume_button.pressed.connect(_on_resume_pressed)
 	if restart_button != null:
@@ -70,6 +77,20 @@ func _ready() -> void:
 	
 	# Create combo popup label (hidden initially)
 	_create_combo_popup()
+	
+	# Set combo label to gold color
+	if combo_label != null:
+		combo_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.0))
+	
+	# Set boss health bar fill color to red
+	if boss_health_bar != null:
+		var fill_style: StyleBoxFlat = StyleBoxFlat.new()
+		fill_style.bg_color = Color(1.0, 0.2, 0.2)
+		fill_style.corner_radius_top_left = 3
+		fill_style.corner_radius_top_right = 3
+		fill_style.corner_radius_bottom_left = 3
+		fill_style.corner_radius_bottom_right = 3
+		boss_health_bar.add_theme_stylebox_override("fill", fill_style)
 
 
 func _process(delta: float) -> void:
@@ -78,6 +99,14 @@ func _process(delta: float) -> void:
 		if _combo_timer <= 0.0:
 			_combo_count = 0
 			_update_combo_label(0)
+	
+	# Initialize boss warning (hidden by default)
+	if boss_warning_label != null:
+		boss_warning_label.visible = false
+	
+	# Sprint status display
+	if sprint_label != null:
+		sprint_label.visible = Input.is_action_pressed("sprint")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -95,10 +124,8 @@ func _on_resume_pressed() -> void:
 
 
 func _on_restart_pressed() -> void:
-	var gm: Node = _gm()
-	if gm != null:
-		gm.set_pause(false)
-	get_tree().change_scene_to_file("res://scenes/game.tscn")
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 func _on_quit_pressed() -> void:
@@ -205,17 +232,41 @@ func _update_boss_health_bar(current: int, max_val: int) -> void:
 		boss_health_bar.value = current
 
 
-func show_boss_health(current: int, max_val: int) -> void:
-	_update_boss_health_bar(current, max_val)
+func show_boss_health_bar() -> void:
 	_update_boss_health_visibility(true)
 
 
-func hide_boss_health() -> void:
+func update_boss_health(current_health: float, max_health: float) -> void:
+	_update_boss_health_bar(int(current_health), int(max_health))
+
+
+func hide_boss_health_bar() -> void:
 	_update_boss_health_visibility(false)
 
 
-func update_boss_health(current: int, max_val: int) -> void:
-	_update_boss_health_bar(current, max_val)
+func show_slow_mo() -> void:
+	if slow_mo_label != null:
+		slow_mo_label.visible = true
+
+
+func hide_slow_mo() -> void:
+	if slow_mo_label != null:
+		slow_mo_label.visible = false
+
+
+func show_magnet() -> void:
+	if magnet_label != null:
+		magnet_label.visible = true
+
+
+func hide_magnet() -> void:
+	if magnet_label != null:
+		magnet_label.visible = false
+
+
+func update_magnet_timer(time_remaining: float) -> void:
+	if magnet_label != null and magnet_label.visible:
+		magnet_label.text = "🧲 MAGNET! " + snapped(time_remaining, 1) + "s"
 
 
 func set_weather_icon(weather_type: int) -> void:
@@ -362,6 +413,20 @@ func _show_achievement_popup(achievement_id: String) -> void:
 	var popup: Node = achievement_popup_scene.instantiate()
 	add_child(popup)
 	popup.show_achievement(info.get("name", ""), info.get("description", ""))
+
+
+## Show boss warning banner at the top center of the screen.
+## The banner displays for 3 seconds and then automatically hides.
+func show_boss_warning() -> void:
+	if boss_warning_label == null:
+		return
+	
+	boss_warning_label.visible = true
+	
+	# Auto-hide after 3 seconds
+	await get_tree().create_timer(3.0).timeout
+	if boss_warning_label != null:
+		boss_warning_label.visible = false
 
 
 func _gm() -> Node:

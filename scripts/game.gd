@@ -18,6 +18,7 @@ const BOSS_BULLET_DAMAGE: int = 1
 @onready var enemy_scene: PackedScene = preload("res://scenes/enemy.tscn")
 @onready var explosion_scene: PackedScene = preload("res://scenes/explosion.tscn")
 @onready var powerup_scene: PackedScene = preload("res://scenes/powerup.tscn")
+@onready var magnet_powerup_scene: PackedScene = preload("res://scenes/magnet_powerup.tscn")
 @onready var boss_scene: PackedScene = preload("res://scenes/boss.tscn")
 @onready var boss_bullet_scene: PackedScene = preload("res://scenes/boss_bullet.tscn")
 @onready var weather_particles_scene: PackedScene = preload("res://scenes/weather_particles.tscn")
@@ -30,6 +31,10 @@ var _boss_active: bool = false
 var _current_boss: Node2D = null
 var _weather_manager: Node = null
 var _weather_particles: Node2D = null
+var _magnet_active: bool = false
+var _magnet_timer: float = 0.0
+const MAGNET_DURATION: float = 5.0
+const MAGNET_ATTRACTION_SPEED: float = 400.0
 
 
 func _ready() -> void:
@@ -57,6 +62,7 @@ func _process(delta: float) -> void:
 	_handle_waves(delta)
 	_handle_collisions()
 	_handle_powerup_collection()
+	_handle_magnet(delta)
 
 
 func _input(event: InputEvent) -> void:
@@ -129,7 +135,7 @@ func _apply_weather_to_player() -> void:
 		return
 	
 	var effects: Dictionary = _weather_manager.get_weather_effects() as Dictionary
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 	
 	if player != null and player.has_method("set_weather_speed_multiplier"):
 		var speed_mult: float = effects.get("speed_mult", 1.0) as float
@@ -179,7 +185,7 @@ func _show_game_over() -> void:
 
 
 func _handle_shooting(delta: float) -> void:
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 	if player == null:
 		return
 
@@ -244,6 +250,10 @@ func _handle_spawning(delta: float) -> void:
 
 
 func _spawn_enemy() -> void:
+	# Don't spawn regular enemies when boss is active
+	if _boss_active:
+		return
+	
 	var enemy: Node2D = enemy_scene.instantiate() as Node2D
 	if enemy == null:
 		push_error("Failed to instantiate enemy.")
@@ -254,6 +264,62 @@ func _spawn_enemy() -> void:
 		enemy.set_speed_multiplier(speed_mult)
 
 	add_child(enemy)
+
+
+func _spawn_boss() -> void:
+	if _boss_active:
+		return
+	
+	var boss: Node2D = boss_scene.instantiate() as Node2D
+	if boss == null:
+		push_error("Failed to instantiate boss.")
+		return
+	
+	_boss_active = true
+	_current_boss = boss
+	
+	# Show boss warning in HUD
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	if hud != null:
+		if hud.has_method("show_boss_warning"):
+			hud.show_boss_warning()
+		if hud.has_method("show_boss_health_bar"):
+			hud.show_boss_health_bar()
+	
+	# Connect to boss health signal for HUD display
+	if boss.has_signal("health_changed"):
+		boss.health_changed.connect(_on_boss_health_changed)
+	
+	add_child(boss)
+
+
+func _on_boss_health_changed(health: int, max_health: int) -> void:
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	if hud == null:
+		return
+	
+	if hud.has_method("show_boss_health_bar"):
+		hud.show_boss_health_bar()
+	if hud.has_method("update_boss_health"):
+		hud.update_boss_health(float(health), float(max_health))
+
+
+func on_boss_died(boss_node: Node, position: Vector2) -> void:
+	_boss_active = false
+	_current_boss = null
+	
+	# Hide boss health bar
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	if hud != null and hud.has_method("hide_boss_health_bar"):
+		hud.hide_boss_health_bar()
+	
+	# Extra screen shake for boss death
+	_trigger_screen_shake()
+	
+	# Spawn explosions at boss position
+	for i: int in range(5):
+		var offset_pos: Vector2 = position + Vector2(randf_range(-50.0, 50.0), randf_range(-50.0, 50.0))
+		_spawn_explosion(offset_pos)
 
 
 func get_wave() -> int:
@@ -273,6 +339,10 @@ func _handle_waves(delta: float) -> void:
 		_wave_timer = 0.0
 		gm.next_wave()
 		
+		# Check if this wave should spawn a boss (every 5th wave)
+		if get_wave() % 5 == 0:
+			_spawn_boss()
+		
 		# Randomize weather when wave changes
 		_change_weather_on_wave_change()
 
@@ -285,7 +355,7 @@ func _change_weather_on_wave_change() -> void:
 func _handle_collisions() -> void:
 	var enemies: Array = _get_enemies()
 	var bullets: Array = _get_bullets()
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 
 	for enemy: Node2D in enemies:
 		var enemy_size: float = enemy.get("SIZE") as float
@@ -330,7 +400,7 @@ func _on_enemy_destroyed(enemy: Node2D, position: Vector2) -> void:
 
 
 func _add_player_experience() -> void:
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 	if player == null or not player.has_method("add_experience"):
 		return
 	var old_level: int = 1
@@ -349,17 +419,27 @@ func _add_player_experience() -> void:
 func _try_spawn_powerup(position: Vector2) -> void:
 	if randf() >= 0.3:
 		return
-	var powerup: Node2D = powerup_scene.instantiate() as Node2D
-	if powerup == null:
-		return
-	powerup.position = position
-	var type_index: int = randi() % 4
-	powerup.set("powerup_type", type_index)
-	add_child(powerup)
+	
+	# Decide whether to spawn regular powerup or magnet powerup (10% chance for magnet)
+	if randf() < 0.1:
+		# Spawn magnet powerup
+		var magnet_powerup: Node2D = magnet_powerup_scene.instantiate() as Node2D
+		if magnet_powerup != null:
+			magnet_powerup.position = position
+			add_child(magnet_powerup)
+	else:
+		# Spawn regular powerup
+		var powerup: Node2D = powerup_scene.instantiate() as Node2D
+		if powerup == null:
+			return
+		powerup.position = position
+		var type_index: int = randi() % 5  # 0-4 for HEAL, RAPID_FIRE, SHIELD, BOMB, MAGNET
+		powerup.set("powerup_type", type_index)
+		add_child(powerup)
 
 
 func _handle_powerup_collection() -> void:
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 	if player == null:
 		return
 
@@ -374,17 +454,20 @@ func _handle_powerup_collection() -> void:
 			_collect_powerup(powerup, player)
 
 
-func _collect_powerup(powerup: Node2D, player: Node2D) -> void:
+func _collect_powerup(powerup: Node2D, player: CharacterBody2D) -> void:
 	var am: Node = _am()
 	if am != null and am.has_method("play_powerup"):
 		am.play_powerup()
 	var type_index: int = powerup.get("powerup_type") as int
 	var type_string: String = _powerup_type_to_string(type_index)
-	if type_string == "bomb":
-		_activate_bomb()
-	else:
-		if player.has_method("apply_powerup"):
-			player.apply_powerup(type_string)
+	match type_string:
+		"bomb":
+			_activate_bomb()
+		"magnet":
+			_activate_magnet()
+		_:
+			if player.has_method("apply_powerup"):
+				player.apply_powerup(type_string)
 	# Record powerup collection for achievements
 	var gm: Node = _gm()
 	if gm != null and gm.has_method("record_powerup_collected"):
@@ -402,6 +485,8 @@ func _powerup_type_to_string(type_index: int) -> String:
 			return "shield"
 		3:
 			return "bomb"
+		4:
+			return "magnet"
 		_:
 			return "heal"
 
@@ -416,8 +501,64 @@ func _activate_bomb() -> void:
 			_on_enemy_destroyed(enemy, enemy.position)
 
 
+func _handle_magnet(delta: float) -> void:
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	
+	if not _magnet_active:
+		return
+	
+	_magnet_timer -= delta
+	
+	# Update HUD timer display
+	if hud != null and hud.has_method("update_magnet_timer"):
+		hud.update_magnet_timer(_magnet_timer)
+	
+	if _magnet_timer <= 0.0:
+		_magnet_active = false
+		_magnet_timer = 0.0
+		# Hide magnet indicator in HUD
+		if hud != null and hud.has_method("hide_magnet"):
+			hud.hide_magnet()
+		return
+	
+	var player: CharacterBody2D = $Player as CharacterBody2D
+	if player == null:
+		return
+	
+	# Attract all powerups toward player
+	for child: Node in get_children():
+		if not child.is_in_group("powerup"):
+			continue
+		var powerup: Node2D = child as Node2D
+		if powerup == null or not is_instance_valid(powerup):
+			continue
+		
+		var direction: Vector2 = player.position - powerup.position
+		var distance: float = direction.length()
+		if distance > 0.0:
+			direction = direction.normalized()
+			# Move powerup toward player
+			powerup.position += direction * MAGNET_ATTRACTION_SPEED * delta
+			# Clamp to not go past player
+			if powerup.position.distance_to(player.position) < 5.0:
+				powerup.position = player.position
+
+
+func _activate_magnet() -> void:
+	_magnet_active = true
+	_magnet_timer = MAGNET_DURATION
+	var am: Node = _am()
+	if am != null and am.has_method("play_powerup"):
+		am.play_powerup()
+	
+	# Show magnet indicator in HUD
+	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
+	if hud != null and hud.has_method("show_magnet"):
+		hud.show_magnet()
+
+
 func _update_weapon_level_hud() -> void:
-	var player: Node2D = $Player as Node2D
+	var player: CharacterBody2D = $Player as CharacterBody2D
 	var hud: CanvasLayer = get_node_or_null("HUD") as CanvasLayer
 	if hud == null or player == null or not player.has_method("get_weapon_level"):
 		return

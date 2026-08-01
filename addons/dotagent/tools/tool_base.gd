@@ -103,6 +103,33 @@ func _ensure_dir(path: String) -> void:
 		DirAccess.make_dir_recursive_absolute(dir_path)
 
 
+## LLM 数组参数容错：模型有时把数组双重编码成 JSON 字符串（MiniMax 高频出现
+## operations: "[{...}]"），统一在此兜底解析，避免 "No operations provided" 类误杀
+func _as_array(v) -> Array:
+	if v is Array:
+		return v
+	if v is String and not v.is_empty():
+		var parsed = JSON.parse_string(v)
+		if parsed is Array:
+			return parsed
+		# 宽容重试 1：模型常在数组 JSON 外面裹 markdown/散文（```json [...] ```），
+		# 截取首个 [ 到末个 ] 之间的子串再解析（R11 实测此类双重编码连废 2 轮）
+		var lb: int = v.find("[")
+		var rb: int = v.rfind("]")
+		if lb >= 0 and rb > lb:
+			var inner: String = v.substr(lb, rb - lb + 1)
+			parsed = JSON.parse_string(inner)
+			if parsed is Array:
+				return parsed
+			# 宽容重试 2：字符串值里混入了原始换行/制表符（非法 JSON，R19 实测三连败）
+			# — 全局替换为空白后重试。场景操作参数极少需要字面换行，风险可接受
+			var cleaned: String = inner.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+			parsed = JSON.parse_string(cleaned)
+			if parsed is Array:
+				return parsed
+	return []
+
+
 ## 将 JSON 基本类型自动转换为 Godot 原生类型
 ## 解决 JSON 传 Color / Vector2 / Rect2 等复杂类型的问题
 ## {"r":1,"g":0.5,"b":0} → Color(1, 0.5, 0)

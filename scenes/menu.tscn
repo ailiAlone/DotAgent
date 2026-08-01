@@ -1,4 +1,6 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/menu.gd" id="1_fix1"]
 
 [node name="Menu" type="Control"]
 layout_mode = 3
@@ -9,8 +11,7 @@ offset_right = 1280.0
 offset_bottom = 720.0
 grow_horizontal = 2
 grow_vertical = 2
-script = "res://scripts/menu.gd"
-
+script = ExtResource("1_fix1")
 [node name="Background" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15

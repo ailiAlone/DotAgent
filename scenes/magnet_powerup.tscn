@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/magnet_powerup.gd" id="1_magnet"]
+
+[node name="MagnetPowerup" type="Node2D" groups=["powerup"]]
+script = ExtResource("1_magnet")

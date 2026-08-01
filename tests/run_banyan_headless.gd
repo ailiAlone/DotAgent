@@ -29,6 +29,8 @@ var _failed := false
 var _fail_msg := ""
 var _start_msec := 0
 var _last_activity_msec := 0  # 最近一次活动时间（空闲超时用）
+var _abort_grace_deadline := 0  # 看门狗触发后的优雅收束死线（0 = 未触发）
+const ABORT_GRACE_SEC := 30.0  # 收束宽限期：到点后硬中止残余节点
 
 # ============ 实时监控 ============
 
@@ -43,18 +45,46 @@ func _initialize() -> void:
 
 
 func _process(_delta: float) -> bool:
-	# 空闲看门狗：IDLE_TIMEOUT_SEC 内无任何活动才 abort
-	if not _done and _last_activity_msec > 0 and float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0 > IDLE_TIMEOUT_SEC:
+	# 空闲看门狗：IDLE_TIMEOUT_SEC 内无任何活动 → 先优雅收束（wind_down），
+	# 宽限期内等运行中的节点落终态（保住用量与知识），到期再硬 abort。
+	if not _done and _abort_grace_deadline == 0 and _last_activity_msec > 0 and float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0 > IDLE_TIMEOUT_SEC:
 		var idle_sec: float = float(Time.get_ticks_msec() - _last_activity_msec) / 1000.0
-		print("\n[WATCHDOG] 空闲 %.0fs 无活动，强制 abort" % idle_sec)
+		print("\n[WATCHDOG] 空闲 %.0fs 无活动，开始优雅收束（宽限 %.0fs）" % [idle_sec, ABORT_GRACE_SEC])
 		if _root_node:
-			_root_node.abort()
-		_finish_run()
-	# 周期状态概览：每 30 秒打印一次所有节点的状态
+			_root_node.wind_down()
+		_abort_grace_deadline = Time.get_ticks_msec() + int(ABORT_GRACE_SEC * 1000.0)
+		_save_tree("看门狗触发时")
+	if not _done and _abort_grace_deadline > 0:
+		var running: Array = []
+		_collect_running(_root_node, running)
+		if running.is_empty():
+			print("[WATCHDOG] 收束完成：所有节点已落终态")
+			_failed = true
+			_fail_msg = "watchdog: idle timeout, wound down gracefully"
+			_finish_run()
+		elif Time.get_ticks_msec() > _abort_grace_deadline:
+			print("[WATCHDOG] 宽限到期，硬中止残余节点: %s" % str(running))
+			if _root_node:
+				_root_node.abort()
+			_failed = true
+			_fail_msg = "watchdog: idle timeout, hard-aborted stragglers: %s" % str(running)
+			_finish_run()
+	# 周期状态概览 + 定期存树：每 30 秒一次。
+	# 定期存树是为了抗外部强杀（bash 超时/kill）——被杀死时最近 30s 内的
+	# 子节点知识与用量不丢（R17 曾被杀导致整棵子树知识丢失）。
 	if _root_node and _start_msec > 0 and float(Time.get_ticks_msec() - _last_status_msec) / 1000.0 > 30.0:
 		_last_status_msec = Time.get_ticks_msec()
 		_print_tree_status()
+		_save_tree("定期")
 	return _done
+
+
+## 把运行时节点收进持久化树并落盘（幂等，30s 一次成本可忽略）
+func _save_tree(reason: String) -> void:
+	if _agent_tree and _root_node:
+		_agent_tree.collect_runtime_nodes(_root_node)
+		if _agent_tree.save():
+			print("[TREE] %s存树完成，节点数: %d" % [reason, _agent_tree.get_node_count()])
 
 
 func _print_tree_status() -> void:
@@ -178,12 +208,20 @@ func _main() -> void:
 
 # ============ 实时监控实现 ============
 
+var _last_seen_states: Dictionary = {}  # node_id → 上次状态名（心跳去重用）
+
 func _on_tree_state_changed(origin_id: String) -> void:
-	_touch_activity()
 	# 冒泡上来的来源 id — 先打印状态变化，再遍历树给新节点挂监控
 	var node: AgentNode = _find_node(origin_id)
 	if node:
-		_monitor_print(origin_id, "状态 → " + _state_name(node.node_state))
+		var sname: String = _state_name(node.node_state)
+		# 空闲看门狗只认"有意义的活动"。LLM 等待循环每 0.5s 重发一次同状态
+		# 心跳（流式进度展示用），请求挂死时心跳照发 —— 若把心跳也算活动，
+		# 看门狗永远不会触发（曾挂 270s 直到外部 kill）。同状态重发不记活动。
+		if _last_seen_states.get(origin_id, "") != sname:
+			_last_seen_states[origin_id] = sname
+			_touch_activity()
+			_monitor_print(origin_id, "状态 → " + sname)
 	else:
 		_monitor_print(origin_id, "状态变化（节点未找到）")
 	_walk_attach(_root_node)
@@ -328,10 +366,7 @@ func _finish_run() -> void:
 
 	# 持久化树 — 先把运行时 spawn 的子节点收进树（与 plugin._sync_agent_tree 一致），
 	# 否则无头跑出的子节点在保存时全部丢失（曾出现 "Agent tree saved: 1 nodes"）
-	if _agent_tree:
-		_agent_tree.collect_runtime_nodes(_root_node)
-		_agent_tree.save()
-		print("[TREE] 已保存，节点数: %d" % _agent_tree.get_node_count())
+	_save_tree("最终")
 
 	print("\n=== HEADLESS RUN %s ===" % ("FAILED: " + _fail_msg if _failed else "OK"))
 

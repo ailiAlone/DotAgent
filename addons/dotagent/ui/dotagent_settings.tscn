@@ -60,7 +60,7 @@ text = "Provider"
 
 [node name="ProviderOption" type="OptionButton" parent="MainVBox/ProviderSection"]
 layout_mode = 2
-selected = 82
+selected = 83
 item_count = 171
 popup/item_0/text = "302.AI (97)"
 popup/item_0/id = 0
@@ -414,7 +414,7 @@ text = "Base URL"
 
 [node name="URLInput" type="LineEdit" parent="MainVBox/URLSection"]
 layout_mode = 2
-text = "https://api.minimax.io/anthropic/v1"
+text = "https://api.minimaxi.com/anthropic/v1"
 placeholder_text = "https://api.openai.com/v1"
 
 [node name="KeySection" type="VBoxContainer" parent="MainVBox"]

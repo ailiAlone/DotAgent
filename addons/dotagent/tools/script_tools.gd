@@ -193,6 +193,11 @@ func _tool_replace_in_file(args: Dictionary) -> Dictionary:
 		return _err("path is required")
 	if old_text.is_empty():
 		return _err("old_text is required (use update_script if you want to overwrite the whole file)")
+	# 场景文件禁止文本手术 — .tscn 的结构/资源引用由 patch_scene 保证序列化正确。
+	# 实测 R16：模型 patch 属性未达预期后对 hud.tscn 做文本手术（含 "x0"→"x0" 无意义替换），
+	# 更早的 17 场景 script 集体挂空也是同类文本手笔。文本编辑场景文件没有护栏。
+	if path.ends_with(".tscn") or path.ends_with(".scn"):
+		return _err("Scene files must be edited with patch_scene (op=set/add/remove), not text replacement — text surgery on .tscn corrupts resource references. If a patch_scene set didn't take effect, re-inspect the node and set the correct property path (e.g. theme_override_colors/font_color for Label text color).")
 	if not FileAccess.file_exists(path):
 		return _err("File not found: " + path)
 

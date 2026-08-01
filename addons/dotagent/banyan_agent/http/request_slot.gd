@@ -208,11 +208,12 @@ func _poll_connecting(status: int) -> void:
 func _poll_waiting(status: int) -> void:
 	if status == HTTPClient.STATUS_REQUESTING or status == HTTPClient.STATUS_CONNECTED:
 		return  # 等待响应头
-	if status == HTTPClient.STATUS_DISCONNECTED:
-		_fail("Server disconnected before response")
-		return
 	if status != HTTPClient.STATUS_BODY:
-		return  # 重试下一帧
+		# DISCONNECTED / CANT_RESOLVE / CANT_CONNECT / CONNECTION_ERROR /
+		# TLS_HANDSHAKE_ERROR —— 此前这里"重试下一帧"导致永久挂起
+		# （mbedtls TLS 错误后整轮挂死 270s+ 的根因）
+		_fail("Response wait failed: status=%d" % status)
+		return
 
 	# 检查 HTTP 状态码
 	if client.get_response_code() >= 400:
@@ -237,8 +238,12 @@ func _poll_reading(status: int) -> void:
 		if client.get_status() == HTTPClient.STATUS_DISCONNECTED:
 			# 连接关闭 = 流结束
 			_finish_stream()
-	elif status != HTTPClient.STATUS_BODY:
-		# 意外状态
+	elif status == HTTPClient.STATUS_CONNECTION_ERROR or status == HTTPClient.STATUS_TLS_HANDSHAKE_ERROR \
+			or status == HTTPClient.STATUS_CANT_RESOLVE or status == HTTPClient.STATUS_CANT_CONNECT:
+		# 传输层硬错误 —— 不能把残缺流当作正常结束（会拿到半个 JSON）
+		_fail("Stream read failed: status=%d" % status)
+	else:
+		# 其他意外状态
 		_finish_stream()
 
 

@@ -13,6 +13,7 @@ extends "res://addons/dotagent/tools/tool_base.gd"
 ## - run_scene_capture
 ## - get_node_type_info
 ## - read_editor_output
+## - run_game_check
 
 
 
@@ -140,6 +141,24 @@ func get_tool_definitions() -> Array:
 			"method_name": "_tool_read_editor_output",
 			"dangerous": false,
 		},
+		{
+			"name": "run_game_check",
+			"description": "Runtime smoke test: launch a scene in a SEPARATE headless Godot process, run N frames with optional simulated input actions, then verify expected nodes exist and no runtime errors occurred. Use this to close the loop after implementing gameplay/UI changes — it proves the game actually runs. Reads the scene from DISK, so save changes first (set_node_property auto-saves). Returns {passed, smoke, errors}.",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"scene": {"type": "string", "description": "Scene to run, e.g. 'res://scenes/game.tscn'"},
+					"frames": {"type": "integer", "description": "Frames to simulate before checking (default 300)", "default": 300},
+					"press": {"type": "string", "description": "Optional: press input actions at given frames, e.g. 'sprint@30,slow_mo@60'"},
+					"release": {"type": "string", "description": "Optional: release input actions at given frames, e.g. 'sprint@90'"},
+					"expect": {"type": "string", "description": "Optional: comma-separated node names that must exist at the end, e.g. 'Player,HUD'"},
+					"timeout_ms": {"type": "integer", "description": "Max wait for the smoke process in ms (default 30000)", "default": 30000},
+				},
+				"required": ["scene"],
+			},
+			"method_name": "_tool_run_game_check",
+			"dangerous": false,
+		},
 	]
 
 
@@ -157,6 +176,7 @@ func call_method(method_name: String, args: Dictionary) -> Dictionary:
 		"_tool_get_node_type_info": return _tool_get_node_type_info(args)
 		"_tool_run_scene_capture": return await _tool_run_scene_capture(args)
 		"_tool_read_editor_output": return _tool_read_editor_output(args)
+		"_tool_run_game_check": return await _tool_run_game_check(args)
 	return {"ok": false, "content": "Unknown method: " + method_name}
 
 
@@ -530,3 +550,92 @@ func _tool_run_scene_capture(args: Dictionary) -> Dictionary:
 func _tool_read_editor_output(args: Dictionary) -> Dictionary:
 	var max_lines: int = int(args.get("max_lines", 50))
 	return _ok(EditorLogBuffer.get_recent(max_lines))
+
+
+## 运行时冒烟闭环：用独立 headless Godot 子进程跑场景 N 帧，
+## 可注入输入动作、校验期望节点存在、收集运行时错误。
+## 关键实现约束：Windows 下嵌套 Godot 子进程用 OS.execute 管道捕获会死锁，
+## 因此走 cmd.exe /c + 输出重定向到 user:// 临时日志 + 轮询进程退出。
+func _tool_run_game_check(args: Dictionary) -> Dictionary:
+	var scene: String = args.get("scene", "")
+	if scene.is_empty():
+		return _err("scene is required")
+	if not FileAccess.file_exists(scene):
+		return _err("Scene not found: " + scene)
+	var frames: int = clamp(int(args.get("frames", 300)), 1, 3600)
+	var timeout_ms: int = clamp(int(args.get("timeout_ms", 30000)), 5000, 180000)
+
+	var user_args: Array = ["scene=%s" % scene, "frames=%d" % frames]
+	for key in ["press", "release", "expect"]:
+		var v: String = str(args.get(key, "")).strip_edges()
+		if not v.is_empty():
+			for bad in [" ", "\"", "&", "|", ">", "<", "^"]:
+				if v.contains(bad):
+					return _err("%s contains shell-unsafe character '%s' — keep it to action@frame lists" % [key, bad])
+			user_args.append("%s=%s" % [key, v])
+
+	var godot_exe: String = OS.get_executable_path()
+	if godot_exe.is_empty() or not FileAccess.file_exists(godot_exe):
+		return _err("Cannot find godot executable")
+	var project_path: String = ProjectSettings.globalize_path("res://")
+	var log_path: String = "user://run_game_check_%d.log" % Time.get_ticks_msec()
+	var log_abs: String = ProjectSettings.globalize_path(log_path)
+
+	# cmd /c 引号规则：整串不要再包一层引号（会触发解析失败、日志不落盘），
+	# 程序路径自身已带引号，cmd 会直接以第一个带引号 token 为可执行文件。
+	var inner := '"%s" --headless --path "%s" --script res://addons/dotagent/tools/runtime_smoke.gd -- %s > "%s" 2>&1' % [
+		godot_exe, project_path, " ".join(user_args), log_abs]
+	var pid := OS.create_process("cmd.exe", ["/c", inner], false)
+	if pid < 0:
+		return _err("Failed to spawn smoke process")
+
+	var tree := Engine.get_main_loop() as SceneTree
+	var deadline: int = Time.get_ticks_msec() + timeout_ms
+	var timed_out := false
+	while OS.is_process_running(pid):
+		if Time.get_ticks_msec() > deadline:
+			timed_out = true
+			OS.kill(pid)
+			break
+		if tree:
+			await tree.create_timer(0.25).timeout
+		else:
+			OS.delay_msec(250)
+
+	var output := ""
+	if FileAccess.file_exists(log_path):
+		var f := FileAccess.open(log_path, FileAccess.READ)
+		if f:
+			output = f.get_as_text()
+			f.close()
+		DirAccess.remove_absolute(log_abs)
+
+	var smoke: Array = []
+	var other: Array = []
+	for line in output.split("\n", false):
+		var l := line.strip_edges()
+		if l.is_empty():
+			continue
+		if l.begins_with("[SMOKE"):
+			smoke.append(l)
+		else:
+			other.append(l)
+	var errors := _extract_error_lines("\n".join(other))
+	var passed := false
+	for l in smoke:
+		if l.begins_with("[SMOKE-PASS]"):
+			passed = true
+
+	var result := {
+		"scene": scene,
+		"frames": frames,
+		"passed": passed and not timed_out,
+		"timed_out": timed_out,
+		"smoke": smoke,
+		"errors": errors,
+	}
+	if output.is_empty():
+		result["note"] = "no output captured — smoke process may have failed to start"
+	elif smoke.is_empty():
+		result["raw_preview"] = output.substr(0, 1500)
+	return _ok_json(result)

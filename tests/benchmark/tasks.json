@@ -1,0 +1,174 @@
+{
+  "version": "1.0",
+  "note": "Banyan 成功率基准任务集。任务按顺序执行、效果累积（后面的任务可以看到前面的产出）。pass = 运行状态 COMPLETED 且全部 checks 通过且在预算内。",
+  "tasks": [
+    {
+      "id": "A1",
+      "type": "分析",
+      "task": "阅读 res://scripts/player.gd，用不超过 150 字总结它的架构（职责、关键信号、对外接口），把摘要写入 res://docs/bench_a1_player_summary.md。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://docs/bench_a1_player_summary.md"},
+        {"kind": "contains", "path": "res://docs/bench_a1_player_summary.md", "pattern": "(?i)player"}
+      ],
+      "max_in_tokens": 40000,
+      "max_duration_sec": 150
+    },
+    {
+      "id": "A2",
+      "type": "分析",
+      "task": "列出 res://scenes/ 目录下所有 .tscn 场景文件及各自的根节点名称与类型，整理成表格写入 res://docs/bench_a2_scenes.md。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://docs/bench_a2_scenes.md"},
+        {"kind": "contains", "path": "res://docs/bench_a2_scenes.md", "pattern": "game\\.tscn"}
+      ],
+      "max_in_tokens": 40000,
+      "max_duration_sec": 150
+    },
+    {
+      "id": "A3",
+      "type": "分析",
+      "task": "分析 res://scripts/hud.gd 与 res://scenes/game.tscn 中 HUD 节点的关系（脚本如何找到并更新 UI 节点），写入 res://docs/bench_a3_hud.md。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://docs/bench_a3_hud.md"},
+        {"kind": "contains", "path": "res://docs/bench_a3_hud.md", "pattern": "HUD"}
+      ],
+      "max_in_tokens": 45000,
+      "max_duration_sec": 180
+    },
+    {
+      "id": "A4",
+      "type": "分析",
+      "task": "用 run_game_check 运行 res://scenes/game.tscn（frames=120），收集输出中的运行时错误，分析每个错误的根因（哪个脚本引用了不存在的节点），把错误清单和修复建议写入 res://docs/bench_a4_bugs.md。不要修改任何游戏文件。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://docs/bench_a4_bugs.md"},
+        {"kind": "contains", "path": "res://docs/bench_a4_bugs.md", "pattern": "MagnetLabel"}
+      ],
+      "max_in_tokens": 50000,
+      "max_duration_sec": 240
+    },
+    {
+      "id": "M1",
+      "type": "微改",
+      "task": "在 res://scripts/player.gd 的顶部常量区添加一行常量声明：const BENCH_SPEED_MULT := 1.0。不要改动其他任何逻辑。",
+      "checks": [
+        {"kind": "contains", "path": "res://scripts/player.gd", "pattern": "const BENCH_SPEED_MULT"},
+        {"kind": "syntax_ok", "path": "res://scripts/player.gd"}
+      ],
+      "max_in_tokens": 50000,
+      "max_duration_sec": 180
+    },
+    {
+      "id": "M2",
+      "type": "微改",
+      "task": "在 res://scripts/game.gd 中添加常量声明：const BENCH_VERSION := \"1\"。不要改动其他任何逻辑。",
+      "checks": [
+        {"kind": "contains", "path": "res://scripts/game.gd", "pattern": "const BENCH_VERSION"},
+        {"kind": "syntax_ok", "path": "res://scripts/game.gd"}
+      ],
+      "max_in_tokens": 50000,
+      "max_duration_sec": 180
+    },
+    {
+      "id": "M3",
+      "type": "微改",
+      "task": "把项目窗口标题（application/config/name）改为 DotAgentBench，并确保改动持久化到 project.godot。",
+      "checks": [
+        {"kind": "contains", "path": "res://project.godot", "pattern": "DotAgentBench"}
+      ],
+      "max_in_tokens": 45000,
+      "max_duration_sec": 180
+    },
+    {
+      "id": "M4",
+      "type": "微改",
+      "task": "在 res://scripts/hud.gd 中添加常量声明：const BENCH_HUD_FLAG := true。不要改动其他任何逻辑。",
+      "checks": [
+        {"kind": "contains", "path": "res://scripts/hud.gd", "pattern": "const BENCH_HUD_FLAG"},
+        {"kind": "syntax_ok", "path": "res://scripts/hud.gd"}
+      ],
+      "max_in_tokens": 50000,
+      "max_duration_sec": 180
+    },
+    {
+      "id": "N1",
+      "type": "新域",
+      "task": "创建一个全新的设置界面场景 res://scenes/bench_settings.tscn：根节点为 Control（命名 Settings），包含一个文本为 Settings 的 Label 子节点。创建后用 run_game_check 验证它能加载（expect=Settings）。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://scenes/bench_settings.tscn"},
+        {"kind": "scene_loads", "path": "res://scenes/bench_settings.tscn"}
+      ],
+      "max_in_tokens": 80000,
+      "max_duration_sec": 300
+    },
+    {
+      "id": "N2",
+      "type": "新域",
+      "task": "创建新脚本 res://scripts/bench_inventory.gd：class_name BenchInventory， extends RefCounted，包含 items 数组、add_item(name)、remove_item(name)、get_count() 三个方法。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://scripts/bench_inventory.gd"},
+        {"kind": "contains", "path": "res://scripts/bench_inventory.gd", "pattern": "class_name BenchInventory"},
+        {"kind": "syntax_ok", "path": "res://scripts/bench_inventory.gd"}
+      ],
+      "max_in_tokens": 60000,
+      "max_duration_sec": 240
+    },
+    {
+      "id": "N3",
+      "type": "新域",
+      "task": "创建一个制作人员名单场景 res://scenes/bench_credits.tscn：根节点为 Control（命名 Credits），包含一个 Label。创建后用 run_game_check 验证加载（expect=Credits）。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://scenes/bench_credits.tscn"},
+        {"kind": "scene_loads", "path": "res://scenes/bench_credits.tscn"}
+      ],
+      "max_in_tokens": 80000,
+      "max_duration_sec": 300
+    },
+    {
+      "id": "X1",
+      "type": "跨域",
+      "task": "为 res://scenes/bench_settings.tscn 创建并挂载脚本 res://scripts/bench_settings.gd（extends Control，_ready 里 print 一行 'settings ready'）。改完后用 run_game_check 验证场景仍能加载（expect=Settings）。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://scripts/bench_settings.gd"},
+        {"kind": "contains", "path": "res://scenes/bench_settings.tscn", "pattern": "bench_settings\\.gd"},
+        {"kind": "scene_loads", "path": "res://scenes/bench_settings.tscn"}
+      ],
+      "max_in_tokens": 90000,
+      "max_duration_sec": 300
+    },
+    {
+      "id": "X2",
+      "type": "跨域",
+      "task": "让主游戏使用背包系统：在 res://scripts/game.gd 的 _ready 中创建 BenchInventory 实例并存为成员变量 inventory。改完必须保证 res://scenes/game.tscn 仍能运行——用 run_game_check 验证（frames=120, expect=Player）。",
+      "checks": [
+        {"kind": "contains", "path": "res://scripts/game.gd", "pattern": "BenchInventory|bench_inventory\\.gd"},
+        {"kind": "syntax_ok", "path": "res://scripts/game.gd"},
+        {"kind": "scene_loads", "path": "res://scenes/game.tscn", "expect": "Player"}
+      ],
+      "max_in_tokens": 100000,
+      "max_duration_sec": 300
+    },
+    {
+      "id": "X3",
+      "type": "跨域",
+      "task": "让玩家移动速度受 BENCH_SPEED_MULT 影响：在 res://scripts/player.gd 的移动逻辑中把速度乘以 BENCH_SPEED_MULT。改完用 run_game_check 验证 res://scenes/game.tscn（frames=120, expect=Player）仍能运行。",
+      "checks": [
+        {"kind": "contains", "path": "res://scripts/player.gd", "pattern": "BENCH_SPEED_MULT"},
+        {"kind": "scene_loads", "path": "res://scenes/game.tscn", "expect": "Player"}
+      ],
+      "max_in_tokens": 100000,
+      "max_duration_sec": 300
+    },
+    {
+      "id": "X4",
+      "type": "跨域",
+      "task": "综合此前所有工作，写一份架构文档 res://docs/bench_x4_arch.md：描述 game.gd、hud.gd、player.gd、bench_inventory.gd 之间的依赖关系图。",
+      "checks": [
+        {"kind": "file_exists", "path": "res://docs/bench_x4_arch.md"},
+        {"kind": "contains", "path": "res://docs/bench_x4_arch.md", "pattern": "(?i)hud"},
+        {"kind": "contains", "path": "res://docs/bench_x4_arch.md", "pattern": "BenchInventory|bench_inventory"}
+      ],
+      "max_in_tokens": 80000,
+      "max_duration_sec": 240
+    }
+  ]
+}

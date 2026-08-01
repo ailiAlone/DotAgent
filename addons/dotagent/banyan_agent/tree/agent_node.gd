@@ -27,6 +27,12 @@ const ROUND_DELAY := 0.3
 const MAX_CHILDREN := 0        # 0 = 无限制
 const CHILD_TIMEOUT := 600.0
 
+# 重复读取短路：这些读工具的路径命中 _read_this_run 且未被本轮写过时直接拦截
+const REREAD_TOOLS := ["read_script", "read_file", "read_file_tail", "read_multiple_files", "read_resource_as_text"]
+# 写工具执行成功后记录路径 — 写后重读属合法验证，不拦截
+const WRITE_TRACK_TOOLS := ["update_script", "replace_in_file", "write_file", "patch_scene",
+	"create_scene", "create_script", "apply_patch", "edit_script"]
+
 const ACTION_EXECUTE := "execute"
 const ACTION_NUDGE := "nudge"
 const ACTION_REDIRECT := "redirect"
@@ -116,6 +122,8 @@ var _routed_this_run: bool = false      # 本次运行是否已 route/spawn 过�
 var _route_recommended: bool = false    # 本次运行是否已推过路由提醒（只推一次）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
+var _read_this_run: Dictionary = {}   # 本轮读取 path → {round, full}（重复读取短路用，每轮运行清空；full=false 为残篇读）
+var _written_this_run: Array = []     # 本轮本节点写过的文件（写后重读属合法验证，不拦截）
 
 # ============ 上下文大小增量缓存 ============
 
@@ -135,6 +143,7 @@ var _usage_input_tokens: int = 0    # 本次运行累计 input tokens（成本�
 var _usage_output_tokens: int = 0   # 本次运行累计 output tokens
 var _syntax_fail_streak: int = 0    # 连续语法校验失败次数（≥2 注入一次定向提醒）
 var _syntax_reminded: bool = false  # 本次运行是否已注入过语法提醒
+var _fail_sig_counts: Dictionary = {}  # 工具签名(hash)→ 连续失败次数（同参数连败守卫）
 
 
 # ============ 初始化 ============
@@ -227,6 +236,9 @@ func run(ticket: Dictionary = {}) -> void:
 	_usage_output_tokens = 0
 	_syntax_fail_streak = 0
 	_syntax_reminded = false
+	_fail_sig_counts.clear()
+	_read_this_run.clear()
+	_written_this_run.clear()
 	# _read_files 和 _file_summaries 从持久化加载，不清除
 	_run_start_time = float(Time.get_ticks_msec())
 
@@ -302,12 +314,15 @@ func run(ticket: Dictionary = {}) -> void:
 
 		var action: String = _analyze_response(_nudged, _redirected, _total_tool_calls)
 
-		# 成果校验：零文件 + 零知识产出就收工，大概率是"只分析没干活"。
+		# 成果校验：零执行 + 零知识产出就收工，大概率是"只分析没干活"。
+		# 委派（route/spawn）计入 _exec_actions_this_run — 纯委派运行是合法完成，
+		# 不挑战（曾误伤：Root R1 路由 R3 收工被挑战，被迫重复读子节点管辖的文件）。
 		# 保存过知识条目 = 有具体产出，跳过挑战直接收束（省一轮 LLM 调用）。
 		# 每次运行挑战一次 — 要求继续动手，或明确说明任务本就是纯分析
 		if action == ACTION_FINISH and not _completion_challenged \
 				and _files_created.is_empty() \
 				and _knowledge_saved_count == 0 \
+				and _exec_actions_this_run == 0 \
 				and not _abort_requested:
 			_completion_challenged = true
 			action = ACTION_CHALLENGE
@@ -371,10 +386,8 @@ func run(ticket: Dictionary = {}) -> void:
 	var summary: String = _extract_summary()
 	if not summary.is_empty() and _is_structured_summary(summary):
 		domain_knowledge = summary
-	# 更新文件列表
-	for f in _files_created:
-		if not managed_files.has(f):
-			managed_files.append(f)
+	# 更新文件列表 — 只认领真正的"新地盘"（写入 ≠ 拥有）
+	_auto_claim_files()
 	# 更新子节点摘要
 	_update_children_summaries()
 	# 添加历史记录
@@ -422,6 +435,7 @@ func run(ticket: Dictionary = {}) -> void:
 const SPAWN_REC_ROUND_THRESHOLD := 6
 const SPAWN_REC_FILE_THRESHOLD := 4
 const SPAWN_REC_STAGE2_ROUND := 12
+const NEW_DOMAIN_REC_ROUND := 4   # 新领域 spawn 推荐的触发轮次（比路由推荐更早——新域越早 spawn 越省）
 
 ## 每轮 LLM 请求前调用 — 检测是否应注入 spawn 推荐
 func _check_spawn_recommendation() -> void:
@@ -440,6 +454,20 @@ func _check_spawn_recommendation() -> void:
 			rmsg += "\nThese children already hold deep knowledge of those files. Consider `route_to_child` for work in their domains instead of doing everything yourself — it saves your context and keeps expertise where it belongs. If a change truly requires your direct edit, proceed."
 			_log("Routing recommendation (round=%d, overlap=%s)" % [_round_count, str(overlap.keys())])
 			messages.append({"role": "user", "content": rmsg})
+
+	# ── 新领域 spawn 推荐：已有子节点，但工作落在无人管辖的新领域 ──
+	# 实测 R17：magnet_powerup 新域任务，Root 因已有子节点收不到 spawn 推荐
+	#（原推荐只对无子节点节点触发），自己包办 27 轮才想起路由。
+	# 新领域该 spawn 新专家沉淀知识，而不是自己硬扛或塞给不匹配的子节点。
+	if not _children.is_empty() and not _routed_this_run and not _route_recommended \
+			and _round_count >= NEW_DOMAIN_REC_ROUND:
+		var uncovered: Array = _find_uncovered_files()
+		if uncovered.size() >= 2:
+			_route_recommended = true
+			var nd_msg := "## New Domain Detected\n\nYou are working with files nobody manages — not yours, not any child's: %s\n\n" % ", ".join(uncovered)
+			nd_msg += "For a feature spanning 2+ unmanaged files, prefer `spawn_child` to create a specialist for this new domain instead of doing everything yourself — the child keeps the knowledge for next time (your existing children cover other domains). If the change is tiny (a single small edit), proceed yourself."
+			_log("New-domain spawn recommendation (round=%d, uncovered=%s)" % [_round_count, str(uncovered)])
+			messages.append({"role": "user", "content": nd_msg})
 
 	if _read_files.size() < SPAWN_REC_FILE_THRESHOLD:
 		return
@@ -514,6 +542,26 @@ func _find_child_file_overlap() -> Dictionary:
 					overlap[cname] = []
 				overlap[cname].append(f)
 	return overlap
+
+
+## 找出本轮读取/创建中"无人管辖"的文件 — 不在自己名下，也不在任何子节点名下。
+## 用于新领域 spawn 推荐：这些文件代表一片没有专家的处女地。
+func _find_uncovered_files() -> Array:
+	var covered: Dictionary = {}
+	for f in managed_files:
+		covered[str(f)] = true
+	for cname in _children:
+		var child: AgentNode = _children[cname]
+		if child == null:
+			continue
+		for f in child.managed_files:
+			covered[str(f)] = true
+	var out: Array = []
+	for f in _read_files + _files_created:
+		var fp: String = str(f)
+		if not covered.has(fp) and fp not in out:
+			out.append(fp)
+	return out
 
 
 ## 从文件路径列表推断领域分组，返回 domain→files 映射
@@ -745,11 +793,73 @@ func grant_rounds(child_id: String, amount: int) -> int:
 # ============ 子类可重写 ============
 
 func _construct_user_message(ticket: Dictionary) -> String:
-	return MsgBldr._format_ticket(ticket)
+	var base: String = MsgBldr._format_ticket(ticket)
+	return base + _build_delegation_hint(base)
+
+
+## 任务消息末尾的分工提示 — 紧凑列出子节点管辖，任务文本命中时点名。
+## 实测 R10：system 上下文里已有 "Your Child Nodes" 详表，Root 仍先自己
+## patch hud.tscn、拖到第 7 轮才路由 — 提示贴在任务消息里才不被忽略。
+func _build_delegation_hint(task_text: String) -> String:
+	if _children.is_empty():
+		return ""
+	var lower_task: String = task_text.to_lower()
+	var lines: Array = []
+	var any_hit: bool = false
+	for cname in _children:
+		var child: AgentNode = _children[cname]
+		if child == null or child.managed_files.is_empty():
+			continue
+		var hits: Array = []
+		for f in child.managed_files:
+			var stem: String = str(f).get_file().get_basename().to_lower()
+			if stem.length() >= 3 and lower_task.contains(stem):
+				hits.append(str(f))
+		var files_brief: String = ", ".join(child.managed_files.slice(0, mini(child.managed_files.size(), 5) - 1))
+		if not hits.is_empty():
+			any_hit = true
+			lines.append("- **%s** → %s  ◀ 本任务命中: %s" % [cname, files_brief, ", ".join(hits)])
+		else:
+			lines.append("- **%s** → %s" % [cname, files_brief])
+	if lines.is_empty():
+		return ""
+	var hint := "\n\n## Delegation Map (orchestrator)\n这些文件各有专家子节点管辖：\n" + "\n".join(lines)
+	if any_hit:
+		hint += "\n本任务明确涉及上面点名的文件——先把那部分用 route_to_child 委派（task_description 里带完整上下文），再做你自己的部分。不要亲自读/改它们管辖的文件，除非委派失败。"
+	else:
+		hint += "\n涉及以上文件的工作请 route_to_child，不要亲自读/改。"
+	return hint
 
 
 func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 	var result: Dictionary
+
+	# ── 本轮重复读取短路 ──
+	# 同一文件本轮已全量读过、且之后本节点没写过它，再读就是纯浪费（实测 R10：
+	# Root R1 read_multiple_files 后 R3/R4 又单读同两个文件，白花 ~4k in）。
+	# 写后重读属合法验证，不拦；怀疑外部变更可传 "force": true 绕过。
+	# 上次读到的是残篇（truncated/tail）时不拦 — 拿全量是正当需求（R11 实测：
+	# read_multiple_files 默认截断 2500 字，模型不得不再读一次全文）。
+	if tc_name in REREAD_TOOLS:
+		var read_args: Variant = JSON.parse_string(args_raw)
+		if read_args is Dictionary and not read_args.get("force", false):
+			var req_paths: Array = _extract_paths(read_args)
+			var dupes: Array = []
+			for p in req_paths:
+				var rec: Variant = _read_this_run.get(p, null)
+				if not (rec is Dictionary) or p in _written_this_run:
+					continue
+				# 全量已读 → 拦一切重读；残篇读 → 只拦同工具的完全重复
+				#（换工具拿全量放行；R19 实测同文件 read_file_tail 连读两次纯属焦虑）
+				if rec.get("full", false) or str(rec.get("tool", "")) == tc_name:
+					dupes.append(p)
+			if not req_paths.is_empty() and dupes.size() == req_paths.size():
+				var first_rec: Dictionary = _read_this_run[dupes[0]]
+				return {
+					"ok": true,
+					"content": "[重复读取拦截] %s 你在本轮第 %d 轮已经用相同方式读过，且之后没有修改过——内容就在你上面的上下文里，直接使用。如确需重读（文件被外部改动或需要更多内容），请在参数中加 \"force\": true。" % [
+						", ".join(dupes), int(first_rec.get("round", 0))],
+				}
 
 	if BanyanToolExecutor.is_management_tool(tc_name):
 		if _tool_executor:
@@ -764,19 +874,40 @@ func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 
 	# ── 追踪已读文件路径 ──
 	if result.get("ok", false):
-		if tc_name == "read_script":
+		if tc_name in REREAD_TOOLS:
 			var parsed_args: Variant = JSON.parse_string(args_raw)
 			if parsed_args is Dictionary:
-				var fp: String = str(parsed_args.get("path", ""))
-				if not fp.is_empty() and fp not in _read_files:
-					_read_files.append(fp)
-		elif tc_name == "read_multiple_files":
+				# 残篇读（截断/tail）不算"已持有全文"——后续全量读放行；
+				# 全量记录不被残篇读降级
+				var result_text: String = str(result.get("content", ""))
+				var got_full: bool = tc_name != "read_file_tail" \
+					and not result_text.contains("[truncated]") \
+					and not result_text.contains("TRUNCATED")
+				for p in _extract_paths(parsed_args):
+					var prev: Variant = _read_this_run.get(p, null)
+					if got_full or not (prev is Dictionary and prev.get("full", false)):
+						_read_this_run[p] = {"round": _round_count, "full": got_full, "tool": tc_name}
+					if p not in _read_files:
+						_read_files.append(p)
+				# 读子节点管辖的文件 → 结果末尾追加分权提醒（不阻断）。
+				# 实测 R11：Root 委派后仍亲自读 hud.gd 全文， jurisdictional
+				# 提示放在 system 上下文里被忽略，贴在工具结果里才看得见
+				if not _children.is_empty():
+					var note: String = _jurisdiction_note(_extract_paths(parsed_args))
+					if not note.is_empty():
+						result["content"] = result_text + note
+		elif tc_name in WRITE_TRACK_TOOLS:
 			var parsed_args: Variant = JSON.parse_string(args_raw)
 			if parsed_args is Dictionary:
-				for p in parsed_args.get("paths", []):
-					var ps: String = str(p)
-					if ps not in _read_files:
-						_read_files.append(ps)
+				var wpaths: Array = _extract_paths(parsed_args)
+				for p in wpaths:
+					if p not in _written_this_run:
+						_written_this_run.append(p)
+				# 直接改子节点管辖的文件 → 结果末尾追加告诫（下次先委派）
+				if not _children.is_empty():
+					var wnote: String = _jurisdiction_write_note(wpaths)
+					if not wnote.is_empty():
+						result["content"] = str(result.get("content", "")) + wnote
 		elif tc_name in ["inspect_scene_structured", "extract_script_interface"]:
 			var parsed_args: Variant = JSON.parse_string(args_raw)
 			if parsed_args is Dictionary:
@@ -785,6 +916,63 @@ func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 					_read_files.append(fp)
 
 	return result
+
+
+## 若读取路径落在子节点管辖范围，生成一行提醒（附在工具结果末尾）
+func _jurisdiction_note(paths: Array) -> String:
+	var hits: Dictionary = {}
+	for p in paths:
+		for cname in _children:
+			var child: AgentNode = _children[cname]
+			if child != null and p in child.managed_files:
+				if not hits.has(p):
+					hits[p] = cname
+	if hits.is_empty():
+		return ""
+	var parts: Array = []
+	for p in hits:
+		parts.append("%s → %s" % [p, hits[p]])
+	return "\n\n[管辖提醒] 以上文件由子节点管辖（%s）。它持有这些文件的最新知识——相关改动请 route_to_child，不要亲自读改，除非只是快速确认。" % ", ".join(parts)
+
+
+## 写子节点管辖文件后的告诫（写已发生，重点在下次先委派）。
+## 实测 R13：Root 委派 Ui 后仍亲自 patch_scene 改 hud.tscn——子节点持有的
+## 蒸馏知识与文件实际状态从此脱节，下次它醒来会基于过期认知工作。
+## 重叠管辖（自己也管该文件）时降级为一致性提示。
+func _jurisdiction_write_note(paths: Array) -> String:
+	var strong: Array = []
+	var overlap: Array = []
+	for p in paths:
+		for cname in _children:
+			var child: AgentNode = _children[cname]
+			if child != null and p in child.managed_files:
+				if p in managed_files:
+					if "%s → %s" % [p, cname] not in overlap:
+						overlap.append("%s → %s" % [p, cname])
+				elif "%s → %s" % [p, cname] not in strong:
+					strong.append("%s → %s" % [p, cname])
+	var note: String = ""
+	if not strong.is_empty():
+		note += "\n\n[管辖告诫] 你刚刚直接修改了子节点管辖的文件（%s）。该节点持有这些文件的蒸馏知识，你的直接改动已与它的认知脱节。下次涉及这些文件的改动请先 route_to_child；本次请确认改动与子节点已有实现不冲突。" % ", ".join(strong)
+	if not overlap.is_empty():
+		note += "\n\n[管辖提示] 刚修改的文件同时由你和子节点管辖（%s）。为保持知识一致，这类改动优先 route_to_child 委派。" % ", ".join(overlap)
+	return note
+
+
+## 从工具参数里提取文件路径（兼容单 path / paths 数组 / 各种 path 别名）
+func _extract_paths(parsed_args: Dictionary) -> Array:
+	var out: Array = []
+	if parsed_args.get("paths") is Array:
+		for p in parsed_args["paths"]:
+			var ps: String = str(p)
+			if not ps.is_empty() and ps not in out:
+				out.append(ps)
+	else:
+		for key in ["path", "file_path", "scene_path", "script_path"]:
+			var fp: String = str(parsed_args.get(key, ""))
+			if not fp.is_empty() and fp not in out:
+				out.append(fp)
+	return out
 
 
 func _handle_management_tool(tool_name: String, args: Dictionary) -> Dictionary:
@@ -1022,6 +1210,20 @@ func _execute_tool_round(tool_calls: Array) -> void:
 					})
 					_log("Syntax failure streak %d — injected targeted typing reminder" % _syntax_fail_streak)
 
+		# 同参数连败守卫：同一工具+同一参数连续失败 ≥2 次 → 注入一次换路提醒。
+		# 实测 X3：replace_in_file 同一组参数连挂 3 次，每次白烧一整轮上下文。
+		var sig: String = tc_name + "|" + str(tc_args_raw.hash())
+		if ok:
+			_fail_sig_counts.erase(sig)
+		else:
+			_fail_sig_counts[sig] = int(_fail_sig_counts.get(sig, 0)) + 1
+			if int(_fail_sig_counts[sig]) == 2:
+				messages.append({
+					"role": "user",
+					"content": "The exact same tool call (%s) has now failed twice with IDENTICAL arguments — a third identical retry will fail again. Stop and change strategy: re-read the target file to see its CURRENT exact content, fix your match string / preconditions, or switch to a different tool, then retry." % tc_name,
+				})
+				_log("Same-signature failure streak on %s — injected change-strategy reminder" % tc_name)
+
 		if tc_name in ["build_scene", "build_script", "update_script", "write_file", "patch_scene", "configure_resource"] and ok:
 			_track_files(result)
 		if tc_name == "replace_in_file" and ok:
@@ -1042,6 +1244,22 @@ func _track_files(result: Dictionary) -> void:
 	var d: Dictionary = parsed
 	if d.has("path"):
 		_files_created.append(d.get("path"))
+
+
+## 运行结束自动认领本轮创建/修改的文件 — 但祖先已管辖的不认。
+## 写入 ≠ 拥有：受委派改别人的文件只是"代笔"，不改变管辖权。
+## 实测 R12：Ui 受 Root 委派改 game.gd（Root 管辖）后自动认领了它，
+## 管辖地图被侵蚀 — 后续 game.gd 任务会被错误路由给 Ui。
+func _auto_claim_files() -> void:
+	var ancestor_files: Dictionary = {}
+	var anc: AgentNode = _parent_ref.get_ref() if _parent_ref else null
+	while anc != null:
+		for af in anc.managed_files:
+			ancestor_files[str(af)] = true
+		anc = anc._parent_ref.get_ref() if anc._parent_ref else null
+	for f in _files_created:
+		if not managed_files.has(f) and not ancestor_files.has(f):
+			managed_files.append(f)
 
 
 # ============ 子节点管理 ============
@@ -1082,6 +1300,9 @@ func _handle_spawn_child(args: Dictionary) -> Dictionary:
 	parent_context += "- Dependencies and callers\n"
 	parent_context += "- Issues or concerns found\n"
 	parent_context += "Do NOT end with an empty or vague reply. Always deliver a concrete summary.\n"
+	parent_context += "\n### Verification Requirements\n"
+	parent_context += "- After `patch_scene` / `build_scene`, call `inspect_scene_structured` and confirm the nodes AND properties you intended actually exist in the scene. Your parent will trust your report — an unverified claim (e.g. a button whose `text` was never set) forces the parent to re-read files and redo verification, which is far more expensive than your own check.\n"
+	parent_context += "- Run `check_script_syntax` on every script you modified before finishing.\n"
 	parent_context += "\n### Efficiency Rules\n"
 	parent_context += "- **Batch tool calls in a single round.** If you need to call `save_knowledge` 5 times, do ALL 5 in one tool_calls response — do NOT spread them across 5 separate rounds. Same for `inspect_scene_structured`, `read_script`, etc.\n"
 	parent_context += "- **Use `read_multiple_files` instead of individual `read_script` calls** when reading 2+ files.\n"
@@ -1337,9 +1558,20 @@ func get_execution_trace() -> Dictionary:
 func abort() -> void:
 	_abort_requested = true
 	_release_slot()
-	_set_node_state(NodeState.FAILED)
+	# 已到终态的节点不覆写 — 优雅收束期间完成的子节点不能被改判 FAILED
+	if node_state != NodeState.COMPLETED and node_state != NodeState.FAILED:
+		_set_node_state(NodeState.FAILED)
 	for cname in _children:
 		_children[cname].abort()
+
+
+## 优雅收束 — 只设置中止标志，让运行中的循环在当前步骤结束后自行走收尾流程
+## （记录用量、蒸馏知识、落终态）。与 abort() 的区别：不强制改状态、不立即释放槽位。
+## 调用方应给一个宽限期，到期后再用 abort() 硬中止残余节点。
+func wind_down() -> void:
+	_abort_requested = true
+	for cname in _children:
+		_children[cname].wind_down()
 
 
 func generate_report() -> Dictionary:
@@ -1400,7 +1632,13 @@ static func from_dict(data: Dictionary) -> AgentNode:
 	var node: AgentNode = AgentNode.new()
 	node.node_id = str(data.get("node_id", ""))
 	node.parent_id = str(data.get("parent_id", ""))
-	node.state = str(data.get("state", "IDLE"))
+	var restored_state := str(data.get("state", "IDLE"))
+	# 上次运行中途被 kill/崩溃时，树里可能残留 RUNNING 等瞬态 ——
+	# 进程已死，这些状态永远不会再收敛，必须归一化为终态，
+	# 否则驱动器会把死节点当作活跃节点永久空等。
+	if restored_state in ["RUNNING", "LLM_REQUEST", "TOOL_EXEC", "RETRYING"]:
+		restored_state = "FAILED"
+	node.state = restored_state
 	node.domain_knowledge = str(data.get("domain_knowledge", ""))
 	var mf = data.get("managed_files", [])
 	if mf is Array:

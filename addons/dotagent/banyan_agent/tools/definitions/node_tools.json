@@ -825,6 +825,45 @@
     {
       "type": "function",
       "function": {
+        "name": "run_game_check",
+        "description": "Runtime smoke test: launch a scene in a SEPARATE headless Godot process, run N frames with optional simulated input actions, then verify expected nodes exist and no runtime errors occurred. Use this after implementing gameplay/UI changes — it proves the game actually runs. Reads the scene from DISK, so save changes first. Returns {passed, smoke, errors}.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scene": {
+              "type": "string",
+              "description": "Scene to run, e.g. 'res://scenes/game.tscn'"
+            },
+            "frames": {
+              "type": "integer",
+              "description": "Frames to simulate before checking",
+              "default": 300
+            },
+            "press": {
+              "type": "string",
+              "description": "Optional: press input actions at given frames, e.g. 'sprint@30,slow_mo@60'"
+            },
+            "release": {
+              "type": "string",
+              "description": "Optional: release input actions at given frames, e.g. 'sprint@90'"
+            },
+            "expect": {
+              "type": "string",
+              "description": "Optional: comma-separated node names that must exist at the end, e.g. 'Player,HUD'"
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "description": "Max wait for the smoke process in ms",
+              "default": 30000
+            }
+          },
+          "required": ["scene"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "save_knowledge",
         "description": "Save an important finding for other nodes to use later. Use this when you discover architectural patterns, non-obvious dependencies, or pitfalls. The summary field is REQUIRED — do not call this tool if you have nothing concrete to save.",
         "parameters": {

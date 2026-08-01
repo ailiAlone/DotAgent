@@ -1,7 +1,9 @@
-[gd_scene format=3]
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/hud.gd" id="1_fix1"]
 
 [node name="HUD" type="CanvasLayer"]
-script = "res://scripts/hud.gd"
+script = ExtResource("1_fix1")
 
 [node name="MarginContainer" type="MarginContainer" parent="."]
 anchors_preset = 15
@@ -64,6 +66,7 @@ vertical_alignment = 1
 
 [node name="ComboLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.84, 0, 1)
 text = "x0"
 
 [node name="KillsLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
@@ -77,6 +80,19 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "BEST: 0"
+
+[node name="SprintLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 10
+text = "SPRINTING"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="SlowMoLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+visible = false
+layout_mode = 2
+text = "SLOW-MO"
 
 [node name="BossHealthContainer" type="VBoxContainer" parent="MarginContainer/VBoxContainer"]
 unique_name_in_owner = true
@@ -93,6 +109,15 @@ horizontal_alignment = 1
 [node name="BossHealthBar" type="ProgressBar" parent="MarginContainer/VBoxContainer/BossHealthContainer"]
 unique_name_in_owner = true
 layout_mode = 2
+theme_type_variation = &"ProgressBar"
+
+[node name="PowerupRow" type="HBoxContainer" parent="MarginContainer/VBoxContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="MagnetLabel" type="Label" parent="MarginContainer/VBoxContainer/PowerupRow"]
+layout_mode = 2
+text = "🧲 MAGNET!"
 
 [node name="PauseOverlay" type="Control" parent="MarginContainer"]
 unique_name_in_owner = true
@@ -150,9 +175,19 @@ text = "RESUME"
 [node name="RestartButton" type="Button" parent="MarginContainer/PauseOverlay/PauseMenu"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "RESTART"
+text = "重新开始"
 
 [node name="QuitButton" type="Button" parent="MarginContainer/PauseOverlay/PauseMenu"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "QUIT"
+
+[node name="WarningContainer" type="CenterContainer" parent="MarginContainer"]
+layout_mode = 2
+
+[node name="BossWarningLabel" type="Label" parent="MarginContainer/WarningContainer"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+theme_override_font_sizes/font_size = 48
+text = "WARNING: BOSS APPROACHING"

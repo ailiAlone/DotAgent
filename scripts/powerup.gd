@@ -3,10 +3,11 @@ extends Node2D
 ## Powerup: falls downward, grants an effect when collected by the player.
 ## Game.gd handles collection via distance checks.
 
-enum Type { HEAL, RAPID_FIRE, SHIELD, BOMB }
+enum Type { HEAL, RAPID_FIRE, SHIELD, BOMB, MAGNET }
 
 const DROP_SPEED: float = 80.0
 const SIZE: float = 12.0
+const MAGNET_ATTRACTION_SPEED: float = 300.0
 
 @export var powerup_type: Type = Type.HEAL
 
@@ -29,4 +30,6 @@ func _draw() -> void:
 			color = Color.BLUE
 		Type.BOMB:
 			color = Color.PURPLE
+		Type.MAGNET:
+			color = Color.YELLOW
 	draw_circle(Vector2.ZERO, SIZE, color)

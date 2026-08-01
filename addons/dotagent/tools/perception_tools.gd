@@ -854,6 +854,17 @@ func _serialize_node(node: Node, root: Node, depth: int, max_depth: int, focus_p
 					if iface.has("exports") and not iface.exports.is_empty():
 						info.script["exports"] = iface.exports
 
+	# 挂空告警：script 槽里是 String/Dictionary 而非 Script 资源（LLM 手写场景的
+	# 高频事故），Godot 不会执行。此前被静默省略 — 全项目 17 个场景曾集体挂空，
+	# inspect 每次都说 OK。必须显式出现在检查输出里（不受 include_script_interface 限制）。
+	var raw_script = node.get_script()
+	if raw_script != null and not (raw_script is Resource):
+		info["script"] = {
+			"broken": true,
+			"raw_type": type_string(typeof(raw_script)),
+			"raw_preview": str(raw_script).substr(0, 120),
+		}
+
 	# Signal connections
 	if include_signals:
 		var sig_conns: Array = []
@@ -1065,6 +1076,12 @@ func _count_stats(node_data: Dictionary, stats: Dictionary) -> void:
 func _generate_scene_observations(node_data: Dictionary, observations: Array) -> void:
 	var node_type: String = node_data.get("type", "")
 	var props: Dictionary = node_data.get("properties", {})
+
+	# script 挂空（String/Dictionary 而非 Script 资源）— 最高优先级告警
+	var script_info = node_data.get("script", {})
+	if script_info is Dictionary and script_info.get("broken", false):
+		observations.append("%s 的 script 未正确挂接（%s 而非 Script 资源）— 不会执行！用 patch_scene set script={\"path\": \"res://...\"} 修复" % [
+			node_data.get("name", "unknown"), str(script_info.get("raw_type", "?"))])
 
 	# CollisionShape2D without shape
 	if node_type == "CollisionShape2D" and not props.has("shape"):

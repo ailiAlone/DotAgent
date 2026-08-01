@@ -171,7 +171,6 @@ godot --path "C:\path\to\project" --script res://tests/_repro_graph_render.gd
 - **修复**：`ctx_size` 随树持久化，messages 为空时展示持久值，开跑后自动切回实时值。
 
 ### 案例 D：无头模式静默无输出（路径解析陷阱）
-
 - **现象**：通过 PowerShell / CMD 执行 `C:\Users\aili\bin\godot --headless …`，进程瞬间退出，
   无 stdout/stderr，退出码为空，日志文件仅有 `EXIT_CODE=`。
 - **根因**：`C:\Users\aili\bin\godot` 是 bash 包装脚本（110 bytes，`#!/bin/bash` 开头），
@@ -184,6 +183,68 @@ godot --path "C:\path\to\project" --script res://tests/_repro_graph_render.gd
   更可靠。
 - **教训**：无头驱动失败时，**先验证 Godot 是否真的启动了**（`tasklist | grep Godot`），
   再看输出。进程瞬间退出 + 零输出 = 路径问题，不是插件问题。
+
+### 案例 E：工具全灭——模型用 `[TOOL_CALL]` 伪文本代替真实工具调用（2026-07-31）
+
+- **现象**：任务 9.2s "完成"，轨迹里 0 次真实工具调用，最终 summary 是模型用
+  `[TOOL_CALL] {tool => "list_files", args => {...}} [/TOOL_CALL]` 伪格式写的文本。
+  比案例 A 更底层——连挑战机制都无从触发，因为根本没有工具可供调用。
+- **根因链**：① `AnthropicProvider._adapt_tools()` 没拆 OpenAI `{"type":"function","function":{...}}`
+  封装，`t.get("name")` 取空 → **31 个工具全部静默丢弃**，模型只能凭训练记忆写伪调用；
+  ② 修复后暴露第二层——Anthropic content block 索引全局递增（thinking/text 也占位），
+  按索引补槽产生 name/id 全空的幻影 tool_call，回发时 API 报 `duplicate tool_call id: ""`。
+- **排查**：`curl` 直接打端点验证工具调用能力（端点正常返回 tool_use 块）→ 锁定问题在
+  我方序列化层。**端点能力与我方代码要分开验证，不要一起猜。**
+- **修复**：`_adapt_tools` 先拆 `function` 封装；`get_accumulated_tool_calls()` 过滤空名槽位。
+- **教训**：工具适配层改动后，第一轮真实运行就要检查 `[MON] 工具 →` 行的工具名是否非空——
+  空工具名 = 幻影槽位特征。
+
+### 案例 F：LLM 参数双重编码与缩进漂移（2026-07-31）
+
+- **现象 A**：`patch_scene` 报 "No operations provided"，但 args_preview 里明明有 operations——
+  模型把数组**双重编码成 JSON 字符串**（`"operations": "[{...}]"`），`is Array else []` 吞掉。
+- **现象 B**：`replace_in_file` 高频报 "old_text not found"，但文件内容其实匹配——
+  模型把 tab 缩进写成 4 空格（或层级漂移），精确匹配失败。Ui 节点曾因此 6 连败。
+- **修复**：① `tool_base._as_array()` 统一兜底字符串化数组（patch_scene/build_scene 全应用）；
+  ② `replace_in_file` 增加模糊匹配自愈——按行去空白归一化匹配，唯一命中时探测双方
+  缩进单位（`\t` vs 空格）按层级翻译后自动应用；多义/未命中时把最相似区域的真实文本
+  （含行号）塞进错误消息，下轮即可精确命中，省一次 read。
+- **配套**：连续 2 次 Parse Error 注入定向 typing 提醒（user 消息才有效，system 被当背景噪音）。
+- **验证**：模糊替换单测 8/8（`tests/_test_fuzzy_replace.gd`）；验证轮 Ui 节点失败 6→0。
+- **教训**：**工具的失败消息就是模型下一轮的输入**——把"修复所需的全部信息"塞进错误消息，
+  比指望模型自己重读文件更省轮次。
+
+### 案例 G：Root 包办与委派的经济学（2026-07-31 ~ 08-01）
+
+- **现象**：胜利面板任务中 Root 有 3 个专家子节点仍自己实现全部 4 个文件，
+  35 轮 / 210k input tokens；route_to_child 只用来事后"同步知识"。
+- **对比**：路由机制生效后的同类小改任务——Root 7 轮 / 19k in 纯协调，
+  Game 子节点 4 轮搞定（它已持有 game_manager 知识，零重复探索）。
+  **Root 成本降 91%，这就是"知识复利"——树架构的核心收益。**
+- **机制**：路由推荐（读了子节点管辖文件 + ≥6 轮未路由 → 提醒一次）；
+  token 用量全链路采集（parser → slot → execution trace `usage` 字段）让成本可见。
+- **坑**：Root 收工但路由出去的子节点还在跑时直接保存，会截断子节点的知识与用量数据
+  （trace 出现 rounds>0 但 duration=0/tokens=0 的假象）——驱动器要等整棵树收尾。
+- **教训**：评估"更省"要看**委派任务的全树成本**而非只看 Root；子节点读自己管辖的文件
+  是复利，Root 读同样的文件是浪费。
+
+### 案例 H：全项目场景 script 集体挂空（2026-08-01，最严重缺陷）
+
+- **现象**：`tests/_check_scene_load.gd` 加载普查发现——**全部 17 个场景的 script
+  属性都是 String/Dictionary 而非 Script 资源**。游戏在引擎里从未真正运行过任何脚本；
+  此前所有"完成"都只是文件落盘。enemy.tscn 甚至是 `script = {"path": ..., "type": ...}`
+  字典字面量，victory_panel.tscn 是 `script = {"__uuid__": ...}` 幻觉 UUID。
+- **根因**：① 场景文件由 LLM 以文本手写（`write_file`），`script = "res://x.gd"`
+  字符串不会被 tscn 解析器还原为资源；② `patch_scene` 的 `set script` 把字典
+  原样 set 进 script 槽并被序列化器落盘；③ 最致命的是 `inspect_scene_structured`
+  对非 Resource 的 script **静默省略**——每次"验证"都报 OK，验证形同虚设。
+- **修复**：`tests/_repair_scene_scripts.py` 批量改为 `ExtResource` 引用；
+  `_apply_node_property`（_op_set/_op_add 共用）对 script 特判——只接受可加载的
+  脚本路径并 `set_script()`，否则拒绝；`_serialize_node` 显式输出
+  `script: {broken: true, raw_type: ...}` 且 observations 升级为最高优先级告警。
+- **教训**：**"语法检查通过"≠"能运行"**。验证工具自身要对"看起来有输出"保持怀疑——
+  缺数据时应该报缺，而不是跳过。加载级回归（`_check_scene_load.gd`）现在属于
+  每次场景改动后的必跑套件。
 
 ## 7. 工作约定（本仓库实测有效的规则）
 

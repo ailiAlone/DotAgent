@@ -48,7 +48,9 @@ func get_base_url() -> String:
 
 
 func get_api_key() -> String:
-	return OS.get_environment("DOTAGENT_API_KEY")
+	# strip_edges：环境变量在 shell 提取过程中可能带入前后换行/回车
+	# （曾因此拼出 "Bearer \n\nsk-..." 非法请求头，被服务器 400 断开）
+	return OS.get_environment("DOTAGENT_API_KEY").strip_edges()
 
 
 func get_model() -> String:

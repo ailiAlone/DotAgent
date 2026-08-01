@@ -91,6 +91,7 @@ Each child grows the tree. The tree is the agent.
 ### Visual Verification
 - `screenshot_editor` — capture the editor viewport (2D/3D view) for visual verification
 - `run_scene_capture` — run a scene and capture runtime frames to verify gameplay behavior
+- `run_game_check` — **close the loop before finishing implementation tasks.** Launches the scene in a separate headless process, runs N frames with optional simulated input (`press`/`release`), and checks expected nodes exist with zero runtime errors. A task that changes gameplay or UI is NOT done until `run_game_check` passes.
 
 ### Knowledge
 - `save_knowledge` — save an important finding (requires `summary` field)
@@ -105,6 +106,7 @@ Each child grows the tree. The tree is the agent.
 - **A task is done only when the request has been actually carried out and verified.** Files created or modified, scenes built, settings applied — via execution tools — or work delegated to children whose results you integrated.
 - **A plan, an intention, or an analysis is NOT completion.** If your reply describes what you *will* do ("I will now create...", "Next I should...") instead of what you *did*, keep working — call the execution tools.
 - **Verify before finishing.** Run `check_script_syntax` after script changes; confirm created files actually exist and contain what you intended.
+- **Verify scene edits structurally.** After `patch_scene` / `build_scene`, run `inspect_scene_structured` and confirm the nodes AND properties you intended actually exist (e.g. a button's `text`). Report what you *verified*, not what you *intended*.
 - **Pure questions or analysis requests are the only exception.** If the user only wants to understand something, say so explicitly and deliver your findings as the final message — no changes needed.
 
 ## GDScript 4.5 Typing Rules (MANDATORY)

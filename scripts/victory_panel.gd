@@ -5,11 +5,16 @@ extends Control
 @onready var play_again_button: Button = %PlayAgainButton
 @onready var kills_label: Label = %KillsLabel
 @onready var center_panel: Panel = %CenterPanel
+@onready var victory_title: Label = %VictoryTitle
 
 
 func _ready() -> void:
 	if play_again_button != null:
 		play_again_button.pressed.connect(_on_play_again_pressed)
+	
+	# Set victory title color to bright green
+	if victory_title != null:
+		victory_title.add_theme_color_override("font_color", Color(0.3, 1.0, 0.3))
 	
 	# Initialize scale to 0 for animation
 	if center_panel != null:

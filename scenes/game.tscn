@@ -1,7 +1,10 @@
-[gd_scene format=3]
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/game.gd" id="1_fix1"]
+
+[ext_resource type="Script" path="res://scripts/player.gd" id="1_fix2"]
 
 [node name="Game" type="Node2D"]
-script = "res://scripts/game.gd"
-
+script = ExtResource("1_fix1")
 [node name="Player" type="Node2D" parent="."]
-script = "res://scripts/player.gd"
+script = ExtResource("1_fix2")

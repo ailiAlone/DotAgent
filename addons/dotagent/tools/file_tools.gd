@@ -168,9 +168,11 @@ func _tool_read_resource_as_text(args: Dictionary) -> Dictionary:
 
 func _tool_read_multiple_files(args: Dictionary) -> Dictionary:
 	var paths: Array = args.get("paths", [])
-	var max_chars_per_file: int = int(args.get("max_chars_per_file", 2500))
+	# 默认值与 schema 文档 (50000) 对齐 — 此前实现是 2500，文档说 50000，
+	# 模型按"全文已读"理解实则拿到残篇，被迫再单读一次（R11 实测浪费一轮）
+	var max_chars_per_file: int = int(args.get("max_chars_per_file", 50000))
 	if paths.is_empty(): return _err("paths is required")
-	var results := {}; var errors := []
+	var results := {}; var errors := []; var truncated := []
 	for p in paths:
 		var path: String = str(p)
 		if not FileAccess.file_exists(path): errors.append("Not found: " + path); continue
@@ -179,9 +181,12 @@ func _tool_read_multiple_files(args: Dictionary) -> Dictionary:
 		var content := f.get_as_text(); f.close()
 		if content.length() > max_chars_per_file:
 			content = content.substr(0, max_chars_per_file) + "\n... [truncated]"
+			truncated.append(path)
 		results[path] = content
 	var summary := "Read %d files" % results.size()
 	if not errors.is_empty(): summary += " (%d errors: %s)" % [errors.size(), ", ".join(errors)]
+	# 明确告诉模型哪些文件是残篇 — 不知道就会拿半截内容去编辑
+	if not truncated.is_empty(): summary += " [TRUNCATED, use read_script for full content: %s]" % ", ".join(truncated)
 	return _ok(summary + "\n\n" + JSON.stringify(results, "  "))
 
 
