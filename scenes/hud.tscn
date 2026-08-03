@@ -58,6 +58,7 @@ theme_override_font_sizes/font_size = 20
 text = "LVL: 1"
 
 [node name="WeatherIconLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = "☀️"
@@ -65,6 +66,7 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="ComboLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.84, 0, 1)
 text = "x0"
@@ -82,6 +84,7 @@ theme_override_font_sizes/font_size = 20
 text = "BEST: 0"
 
 [node name="SprintLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
 visible = false
 layout_mode = 2
 size_flags_horizontal = 10
@@ -90,6 +93,7 @@ horizontal_alignment = 2
 vertical_alignment = 1
 
 [node name="SlowMoLabel" type="Label" parent="MarginContainer/VBoxContainer/TopRow"]
+unique_name_in_owner = true
 visible = false
 layout_mode = 2
 text = "SLOW-MO"
@@ -116,6 +120,7 @@ layout_mode = 2
 alignment = 1
 
 [node name="MagnetLabel" type="Label" parent="MarginContainer/VBoxContainer/PowerupRow"]
+unique_name_in_owner = true
 layout_mode = 2
 text = "🧲 MAGNET!"
 
@@ -168,16 +173,19 @@ theme_override_constants/separation = 16
 alignment = 1
 
 [node name="ResumeButton" type="Button" parent="MarginContainer/PauseOverlay/PauseMenu"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "RESUME"
 
 [node name="RestartButton" type="Button" parent="MarginContainer/PauseOverlay/PauseMenu"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "重新开始"
 
 [node name="QuitButton" type="Button" parent="MarginContainer/PauseOverlay/PauseMenu"]
+unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "QUIT"
@@ -186,6 +194,7 @@ text = "QUIT"
 layout_mode = 2
 
 [node name="BossWarningLabel" type="Label" parent="MarginContainer/WarningContainer"]
+unique_name_in_owner = true
 visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(0, 0, 0, 1)

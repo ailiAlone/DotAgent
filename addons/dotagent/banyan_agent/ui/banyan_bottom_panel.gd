@@ -16,6 +16,8 @@ signal node_selected(node_id: String)
 @onready var _state_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/StateLabel
 @onready var _rounds_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/RoundsLabel
 @onready var _files_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/FilesLabel
+@onready var _tools_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/ToolsLabel
+@onready var _duration_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/DurationLabel
 @onready var _children_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/ChildrenLabel
 @onready var _history_label: Label = $Split/Right/Inspector/InspectorScroll/InspectorContent/HistoryLabel
 @onready var _knowledge_label: RichTextLabel = $Split/Right/Inspector/InspectorScroll/InspectorContent/KnowledgeLabel
@@ -429,6 +431,12 @@ func _show_inspector(nid: String) -> void:
 			file_list += "  %s\n" % str(f)
 		_files_label.tooltip_text = file_list.strip_edges()
 
+	var tool_calls: int = int(ndata.get("tools", 0))
+	_tools_label.text = "Tools: %d" % tool_calls
+
+	var duration: float = float(ndata.get("duration", 0.0))
+	_duration_label.text = "Duration: %.1fs" % duration
+
 	var children_count: int = int(ndata.get("children_count", 0))
 	_children_label.text = "Children: %d" % children_count
 
@@ -454,6 +462,8 @@ func _clear_inspector() -> void:
 	_state_label.text = ""
 	_rounds_label.text = ""
 	_files_label.text = ""
+	_tools_label.text = ""
+	_duration_label.text = ""
 	_children_label.text = ""
 	_history_label.text = ""
 	_knowledge_label.text = "[i]Select a node to inspect[/i]"

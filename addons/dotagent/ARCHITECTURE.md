@@ -207,11 +207,11 @@ Agent Tree 不是一个可视化工具，它是 Agent 本身。树是持久的�
 
 ## 十一、工具集
 
-所有节点共享同一套工具（31 个，定义在 `tools/definitions/node_tools.json`）：
+所有节点共享同一套工具（32 个，定义在 `tools/definitions/node_tools.json`）：
 - **发现**（只读）：list_files, list_scenes, list_resources, get_project_architecture
 - **感知**（只读）：read_script, read_multiple_files, inspect_scene_structured, analyze_signal_flow 等
 - **执行**（写入）：update_script, build_scene, build_script, patch_scene, write_file 等
-- **可视验证**：screenshot_editor, run_scene_capture
+- **可视验证**：screenshot_editor, run_scene_capture, run_game_check
 - **知识**：save_knowledge, query_knowledge, search_knowledge
 - **文件归属**：claim_files
 - **子节点**：spawn_child, route_to_child, wait_for_children, list_children

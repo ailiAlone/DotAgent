@@ -30,17 +30,6 @@ text = " Idle"
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="ContextLabel" type="Label" parent="Header"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.36, 0.84, 0.36, 1)
-theme_override_font_sizes/font_size = 11
-
-[node name="NewBtn" type="Button" parent="Header"]
-custom_minimum_size = Vector2(28, 0)
-layout_mode = 2
-tooltip_text = "New Session"
-text = "+"
-
 [node name="SettingsBtn" type="Button" parent="Header"]
 custom_minimum_size = Vector2(28, 0)
 layout_mode = 2

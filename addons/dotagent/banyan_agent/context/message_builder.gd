@@ -40,7 +40,10 @@ func build() -> Array:
 		else:
 			other_msgs.append(msg)
 
-	# 滑动窗口：如果非 system 消息超过阈值，保留最近的 + 旧消息摘要
+	# 滑动窗口安全网（架构文档 §9 拒绝上下文压缩，但需要兜底）：
+	# 如果节点长时间不 spawn（合法场景：小任务只需一个节点完成），
+	# 消息会累积到数千条，滑动窗口防止 LLM 请求因 token 溢出而失败。
+	# 理想情况下 spawn 会自然分流上下文，但实际中不是每个任务都需要 spawn。
 	var trimmed_count: int = 0
 	if other_msgs.size() > MAX_MESSAGES:
 		trimmed_count = other_msgs.size() - MAX_MESSAGES

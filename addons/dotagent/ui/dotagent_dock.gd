@@ -29,7 +29,6 @@ const GRAY := Color(0.5, 0.5, 0.5)
 @onready var _prompt_input: TextEdit = $PromptInput
 @onready var _send_button: Button = $BottomBar/SendBtn
 @onready var _stop_button: Button = $BottomBar/StopBtn
-@onready var _context_label: Label = $Header/ContextLabel
 @onready var _settings_button: Button = $Header/SettingsBtn
 @onready var _model_button: Button = $BottomBar/ModelButton
 @onready var _refresh_button: Button = $BottomBar/RefreshBtn
@@ -58,7 +57,6 @@ func _init() -> void:
 
 func _ready() -> void:
 	# 连接信号
-	get_node("Header/NewBtn").pressed.connect(func(): session_requested.emit("new", ""))
 	_send_button.pressed.connect(_on_send_pressed)
 	_stop_button.pressed.connect(func(): stop_requested.emit())
 	_prompt_input.gui_input.connect(_on_prompt_gui_input)
@@ -115,21 +113,6 @@ func _on_model_button_pressed() -> void:
 func _on_model_popup_selected(id: int) -> void:
 	var text: String = _model_popup.get_item_text(id)
 	model_selected.emit(text)
-
-
-## 更新上下文用量显示 — 由 plugin 调用
-func set_context_usage(used_k: int, max_k: int) -> void:
-	if _context_label:
-		var pct: int = 0
-		if max_k > 0:
-			pct = int(float(used_k) / float(max_k) * 100.0)
-		_context_label.text = "%dK/%dK" % [used_k, max_k]
-		if pct > 80:
-			_context_label.add_theme_color_override("font_color", Color(0.9, 0.3, 0.3))
-		elif pct > 60:
-			_context_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.2))
-		else:
-			_context_label.add_theme_color_override("font_color", Color(0.4, 0.7, 0.4))
 
 
 func set_session_id(sid: String) -> void:

@@ -11,7 +11,6 @@ extends EditorPlugin
 const BanyanPool = preload("res://addons/dotagent/banyan_agent/http/http_client_pool.gd")
 const DotAgentDockScene = preload("res://addons/dotagent/ui/dotagent_dock.tscn")
 const SettingsScene = preload("res://addons/dotagent/ui/dotagent_settings.tscn")
-const BanyanSessionPopupScene = preload("res://addons/dotagent/banyan_agent/ui/banyan_session_popup.tscn")
 const LegacyActivityPanelScene = preload("res://addons/dotagent/legacy_agent/ui/activity_panel.tscn")
 const BanyanBottomPanelScene = preload("res://addons/dotagent/banyan_agent/ui/banyan_bottom_panel.tscn")
 const AgentTreeScript = preload("res://addons/dotagent/banyan_agent/tree/agent_tree.gd")
@@ -39,7 +38,6 @@ var _logger = null
 var _root = null
 var _banyan_dock = null  # BanyanDock instance
 var _settings_dialog = null  # DotAgentSettings instance
-var _session_popup = null  # BanyanSessionPopup instance
 
 # Legacy 模式组件
 var _legacy_dock = null  # Legacy Dock instance (shared dock)
@@ -309,13 +307,6 @@ func _init_banyan() -> void:
 	# 5. 会话初始化 — 恢复上次会话或新建
 	_bootstrap_session()
 
-	# 6. 创建 Banyan 会话弹窗
-	_session_popup = BanyanSessionPopupScene.instantiate()
-	_session_popup.session_new.connect(func(): _new_session())
-	_session_popup.session_selected.connect(func(sid: String): _load_session(sid))
-	_session_popup.session_deleted.connect(func(sid: String): _delete_session(sid))
-	add_child(_session_popup)
-
 
 func _shutdown_banyan() -> void:
 	# 保存 Agent Tree
@@ -336,10 +327,6 @@ func _shutdown_banyan() -> void:
 		remove_control_from_docks(_banyan_dock)
 		_banyan_dock.queue_free()
 		_banyan_dock = null
-
-	if _session_popup:
-		_session_popup.queue_free()
-		_session_popup = null
 
 	if _root:
 		_root.abort()
@@ -976,12 +963,6 @@ func _on_dock_session_requested(action: String, id: String) -> void:
 	match action:
 		"new":
 			_new_session()
-		"open":
-			# 显示会话管理弹窗
-			if _session_popup:
-				var sessions: Array = _list_sessions()
-				_session_popup.refresh(sessions, _session_id)
-				_session_popup.popup_centered()
 		"load":
 			if not id.is_empty():
 				_load_session(id)
@@ -1094,6 +1075,8 @@ func _refresh_dock_tree() -> void:
 		"root_state": _state_to_string(_root.node_state),
 		"rounds": _root.get_round_count(),
 		"files": _root.managed_files.duplicate(),
+		"tools": _root._total_tool_calls,
+		"duration": (float(Time.get_ticks_msec() - _root._run_start_time) / 1000.0) if _root._run_start_time > 0 else 0.0,
 		"ctx_size": _root.get_ctx_size(),
 		"stream_chars": _root._stream_chars,
 		"domain_knowledge": _root.domain_knowledge,
@@ -1146,6 +1129,8 @@ func _build_child_tree_data(parent_node) -> Dictionary:
 			"state": _state_to_string(child.node_state),
 			"rounds": child.get_round_count(),
 			"files": child.managed_files.duplicate(),
+			"tools": child._total_tool_calls,
+			"duration": (float(Time.get_ticks_msec() - child._run_start_time) / 1000.0) if child._run_start_time > 0 else 0.0,
 			"ctx_size": child.get_ctx_size(),
 			"stream_chars": child._stream_chars,
 			"domain_knowledge": child.domain_knowledge,

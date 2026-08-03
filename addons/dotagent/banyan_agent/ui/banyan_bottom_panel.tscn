@@ -106,6 +106,14 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 11
 autowrap_mode = 3
 
+[node name="ToolsLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+
+[node name="DurationLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+
 [node name="ChildrenLabel" type="Label" parent="Split/Right/Inspector/InspectorScroll/InspectorContent"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 11

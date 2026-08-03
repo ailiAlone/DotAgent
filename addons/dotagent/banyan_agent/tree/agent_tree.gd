@@ -249,8 +249,35 @@ func apply_prune(suggestion: Dictionary) -> int:
 				pruned += 1
 
 		"extract":
-			# 提取公共模式为新节点（目前只做标记，实际创建由 LLM 决定）
-			_log("Extract prune not yet automated — requires LLM analysis")
+			# 提取共享文件为独立节点：创建公共工具节点，从原节点收回文件管辖权
+			if nodes_list.size() < 2:
+				return 0
+			# 从 suggestion 的 reason 中提取共享文件路径
+			var shared_file: String = _extract_file_from_reason(str(suggestion.get("reason", "")))
+			if shared_file.is_empty():
+				_log("Extract prune: could not determine shared file from reason")
+				return 0
+			# 创建公共节点
+			var node_name: String = "Shared_%s" % shared_file.get_file().get_basename().capitalize().replace(" ", "")
+			if _nodes.has(node_name):
+				node_name = "%s_%d" % [node_name, _nodes.size()]
+			var shared_node: AgentNode = AgentNode.new()
+			shared_node.node_id = node_name
+			shared_node.parent_id = _root_id
+			shared_node.state = "IDLE"
+			shared_node.managed_files = [shared_file]
+			shared_node.domain_knowledge = "Shared utility file: %s\nPreviously managed by %d nodes — extracted for single ownership." % [shared_file, nodes_list.size()]
+			shared_node.add_history_entry("Extracted from %d nodes: %s" % [nodes_list.size(), ", ".join(nodes_list)])
+			_nodes[node_name] = shared_node
+			# 从原节点移除共享文件的管辖权
+			for nid in nodes_list:
+				var n: AgentNode = _nodes.get(nid)
+				if n == null:
+					continue
+				n.managed_files.erase(shared_file)
+				n.add_history_entry("Released %s to %s" % [shared_file, node_name])
+			pruned = 1
+			_log("Extract: created %s for %s, released from %d nodes" % [node_name, shared_file, nodes_list.size()])
 
 	return pruned
 
@@ -337,6 +364,19 @@ func _knowledge_similarity(a: String, b: String) -> float:
 			common += 1
 	var total: int = maxi(words_a.size(), words_b.size())
 	return float(common) / float(total)
+
+
+## 从 prune suggestion 的 reason 字符串中提取文件路径
+## reason 格式: "文件 'res://path/to/file.ext' 被 N 个节点共同管理..."
+func _extract_file_from_reason(reason: String) -> String:
+	var start: int = reason.find("'res://")
+	if start < 0:
+		return ""
+	start += 1  # skip opening quote
+	var end: int = reason.find("'", start)
+	if end < 0:
+		return ""
+	return reason.substr(start, end - start)
 
 
 # ============ 内部 ============

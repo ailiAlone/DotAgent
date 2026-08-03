@@ -86,11 +86,90 @@ func _execute_legacy(tc_name: String, args_raw: String) -> Dictionary:
 	if _tool_registry == null:
 		return {"ok": false, "content": "ToolRegistry not available"}
 
+	# §14 路径校验：文件创建类工具不允许写入扁平目录（scripts/ scenes/ resources/）
+	# 架构要求按领域组织（player/ enemies/ ui/ core/ assets/），扁平目录违反此原则
+	var path_warning: String = _check_flat_directory(tc_name, args_raw)
+	if not path_warning.is_empty():
+		if _logger:
+			_logger.append("TOOLS", "Path validation rejected: %s → %s" % [tc_name, path_warning])
+		return {"ok": false, "content": path_warning}
+
 	if _logger:
 		_logger.append("TOOLS", "Legacy tool: %s" % tc_name)
 
 	var result: Dictionary = await _tool_registry.execute_tool(tc_name, args_raw)
 	return result
+
+
+## 检查文件创建类工具的路径是否在扁平目录中
+## 返回空字符串表示通过，否则返回拒绝消息
+## 注意：update_script/replace_in_file/patch_scene 只拒绝创建新文件，允许修改已有文件
+func _check_flat_directory(tc_name: String, args_raw: String) -> String:
+	# 只有文件创建类工具需要检查
+	if not tc_name in _FILE_CREATING_TOOLS:
+		return ""
+
+	var args: Variant = JSON.parse_string(args_raw)
+	if args == null or not args is Dictionary:
+		return ""
+
+	# 提取路径参数（不同工具用不同参数名）
+	var path: String = ""
+	if args.has("path"):
+		path = str(args.get("path", ""))
+	elif args.has("script_path"):
+		path = str(args.get("script_path", ""))
+
+	if path.is_empty():
+		return ""
+
+	# 修改类工具：如果目标文件已存在，允许操作（修复/清理已有文件是合法的）
+	if tc_name in _FILE_MODIFYING_TOOLS:
+		if FileAccess.file_exists(path):
+			return ""
+
+	# 检查是否在扁平目录下
+	for flat_dir in _FLAT_DIRECTORIES:
+		if path.begins_with("res://" + flat_dir + "/"):
+			return (
+				"REJECTED: Path '%s' is in the flat directory '%s/'. "
+				+ "This project uses domain-based organization (ARCHITECTURE.md §14). "
+				+ "Place the file in a domain directory instead:\n"
+				+ "- Player-related: res://player/\n"
+				+ "- Enemy/boss/bullet: res://enemies/\n"
+				+ "- UI/HUD/menu: res://ui/\n"
+				+ "- Game core/autoloads: res://core/\n"
+				+ "- Shared assets: res://assets/\n"
+				+ "Use list_files to discover the existing domain structure, then retry with the correct path."
+			) % [path, flat_dir]
+
+	return ""
+
+
+## 文件创建类工具列表 — 这些工具的路径参数需要校验
+const _FILE_CREATING_TOOLS := [
+	"build_script",
+	"write_file",
+	"build_scene",
+	"configure_resource",
+	"update_script",
+	"replace_in_file",
+	"patch_scene",
+]
+
+## 修改类工具 — 允许修改已有文件，只拒绝在扁平目录创建新文件
+const _FILE_MODIFYING_TOOLS := [
+	"update_script",
+	"replace_in_file",
+	"patch_scene",
+]
+
+## 违反领域组织原则的扁平目录
+const _FLAT_DIRECTORIES := [
+	"scripts",
+	"scenes",
+	"resources",
+]
 
 
 ## 获取工具是否为管理工具（静态查询）

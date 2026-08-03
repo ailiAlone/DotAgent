@@ -211,6 +211,18 @@
 				"tech_debt"
 			],
 			"timestamp": "2026-08-01T12:59:25"
+		},
+		{
+			"category": "decision",
+			"node_id": "Root",
+			"summary": "Changed project window title (application/config/name) to \"DotAgentBench\" via configure_project tool. Setting persisted to project.godot.",
+			"tags": [
+				"project",
+				"window",
+				"title",
+				"settings"
+			],
+			"timestamp": "2026-08-03T10:20:51"
 		}
 	]
 }

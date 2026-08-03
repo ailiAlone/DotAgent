@@ -116,14 +116,13 @@ var _completion_challenged: bool = false  # 本次运行是否已挑战过"零�
 var _nudge_count: int = 0              # 本次运行中 nudge 次数（限制 reminder 消息）
 var _recent_actions: Array = []         # 最近 6 轮的动作（"nudge"/"execute"/other）用于检测 nudge 占比
 var _knowledge_saved_count: int = 0     # 本次运行保存的知识条目数（用于 Completion Challenge 快速通道）
-var _spawn_recommended: bool = false    # (deprecated, use _spawn_rec_stage)
-var _spawn_rec_stage: int = 0           # spawn 推荐阶段: 0=未推荐, 1=首次(具体方案), 2=二次(强制提醒)
 var _routed_this_run: bool = false      # 本次运行是否已 route/spawn 过（路由推荐的前提检查）
 var _route_recommended: bool = false    # 本次运行是否已推过路由提醒（只推一次）
 var _file_summaries: Dictionary = {}  # path → one-line summary
 var _signals_connected: Dictionary = {}
 var _read_this_run: Dictionary = {}   # 本轮读取 path → {round, full}（重复读取短路用，每轮运行清空；full=false 为残篇读）
 var _written_this_run: Array = []     # 本轮本节点写过的文件（写后重读属合法验证，不拦截）
+var _recovery_injected: Dictionary = {}  # 错误自恢复去重: "error_type" → true（每种错误每轮只注入一次提示）
 
 # ============ 上下文大小增量缓存 ============
 
@@ -228,8 +227,6 @@ func run(ticket: Dictionary = {}) -> void:
 	_nudge_count = 0
 	_recent_actions = []
 	_knowledge_saved_count = 0
-	_spawn_recommended = false
-	_spawn_rec_stage = 0
 	_routed_this_run = false
 	_route_recommended = false
 	_usage_input_tokens = 0
@@ -237,6 +234,7 @@ func run(ticket: Dictionary = {}) -> void:
 	_syntax_fail_streak = 0
 	_syntax_reminded = false
 	_fail_sig_counts.clear()
+	_recovery_injected.clear()
 	_read_this_run.clear()
 	_written_this_run.clear()
 	# _read_files 和 _file_summaries 从持久化加载，不清除
@@ -257,7 +255,11 @@ func run(ticket: Dictionary = {}) -> void:
 	_invalidate_ctx_cache()
 
 	# 注入节点自身的持久化上下文 — 让节点醒来时知道自己是谁
-	var ctx: String = _build_node_context()
+	var _task_text: String = ""
+	var _ticket_reqs = ticket.get("requirements", [])
+	if _ticket_reqs is Array and not _ticket_reqs.is_empty():
+		_task_text = str(_ticket_reqs[0])
+	var ctx: String = _build_node_context(_task_text)
 	if not ctx.is_empty():
 		messages.append({"role": "system", "content": ctx})
 
@@ -434,7 +436,6 @@ func run(ticket: Dictionary = {}) -> void:
 
 const SPAWN_REC_ROUND_THRESHOLD := 6
 const SPAWN_REC_FILE_THRESHOLD := 4
-const SPAWN_REC_STAGE2_ROUND := 12
 const NEW_DOMAIN_REC_ROUND := 4   # 新领域 spawn 推荐的触发轮次（比路由推荐更早——新域越早 spawn 越省）
 
 ## 每轮 LLM 请求前调用 — 检测是否应注入 spawn 推荐
@@ -456,8 +457,6 @@ func _check_spawn_recommendation() -> void:
 			messages.append({"role": "user", "content": rmsg})
 
 	# ── 新领域 spawn 推荐：已有子节点，但工作落在无人管辖的新领域 ──
-	# 实测 R17：magnet_powerup 新域任务，Root 因已有子节点收不到 spawn 推荐
-	#（原推荐只对无子节点节点触发），自己包办 27 轮才想起路由。
 	# 新领域该 spawn 新专家沉淀知识，而不是自己硬扛或塞给不匹配的子节点。
 	if not _children.is_empty() and not _routed_this_run and not _route_recommended \
 			and _round_count >= NEW_DOMAIN_REC_ROUND:
@@ -468,67 +467,6 @@ func _check_spawn_recommendation() -> void:
 			nd_msg += "For a feature spanning 2+ unmanaged files, prefer `spawn_child` to create a specialist for this new domain instead of doing everything yourself — the child keeps the knowledge for next time (your existing children cover other domains). If the change is tiny (a single small edit), proceed yourself."
 			_log("New-domain spawn recommendation (round=%d, uncovered=%s)" % [_round_count, str(uncovered)])
 			messages.append({"role": "user", "content": nd_msg})
-
-	if _read_files.size() < SPAWN_REC_FILE_THRESHOLD:
-		return
-	if not _children.is_empty():
-		return
-
-	var domain_map: Dictionary = _detect_domains_dict(_read_files)
-	var active_domains: Array = []
-	for domain in domain_map:
-		if not domain_map[domain].is_empty():
-			active_domains.append(domain)
-
-	# ── 第一阶段：轮次>=6，具体 spawn 方案（user message 格式） ──
-	if _spawn_rec_stage == 0 and _round_count >= SPAWN_REC_ROUND_THRESHOLD and active_domains.size() >= 2:
-		_spawn_rec_stage = 1
-		_spawn_recommended = true
-		var msg: String = _build_spawn_plan(active_domains, domain_map)
-		_log("Spawn recommendation STAGE 1 (round=%d, files=%d, domains=%d)" % [_round_count, _read_files.size(), active_domains.size()])
-		messages.append({"role": "user", "content": msg})
-
-	# ── 第二阶段：轮次>=12 且仍无子节点，更强约束（user message） ──
-	elif _spawn_rec_stage == 1 and _round_count >= SPAWN_REC_STAGE2_ROUND and _children.is_empty():
-		_spawn_rec_stage = 2
-		var domain_list: String = ", ".join(active_domains)
-		var msg: String = "URGENT: You are on round %d with %d files across %d domains (%s) and ZERO children.\n\n" % [
-			_round_count, _read_files.size(), active_domains.size(), domain_list]
-		msg += "This is exactly the scenario spawn_child is designed for. You MUST do one of the following NOW:\n\n"
-		msg += "**Option A (preferred):** Call spawn_child for at least 2 domains:\n"
-		for i in range(active_domains.size()):
-			var d: String = active_domains[i]
-			var flist: String = ", ".join(domain_map[d])
-			msg += "  - spawn_child(name='%s', task_description='Handle %s files: %s')\n" % [d.capitalize().replace(" ", ""), d, flist]
-		msg += "  Then call wait_for_children.\n\n"
-		msg += "**Option B:** If you believe the domains are tightly coupled and CANNOT be parallelized, "
-		msg += "respond with a one-line explanation of which files have cross-dependencies that prevent parallel work.\n\n"
-		msg += "Do NOT continue modifying files alone without addressing this."
-		_log("Spawn recommendation STAGE 2 (round=%d, files=%d, domains=%d)" % [_round_count, _read_files.size(), active_domains.size()])
-		messages.append({"role": "user", "content": msg})
-
-
-## 构建具体的 spawn 方案 — 给模型一个可直接执行的模板
-func _build_spawn_plan(active_domains: Array, domain_map: Dictionary) -> String:
-	var msg: String = "## Task Decomposition Plan\n\n"
-	msg += "Progress: **%d rounds**, **%d files read**, **%d domains detected**.\n\n" % [_round_count, _read_files.size(), active_domains.size()]
-	msg += "This task spans multiple independent domains. Recommended parallel approach:\n\n"
-
-	# 为每个活跃领域生成具体建议
-	for i in range(active_domains.size()):
-		var domain: String = active_domains[i]
-		var files: Array = domain_map[domain]
-		var child_name: String = domain.capitalize().replace(" ", "")
-		msg += "### Child %d: `%s`\n" % [i + 1, child_name]
-		msg += "**Files:** %s\n" % ", ".join(files)
-		msg += "**Task:** Handle all %s-related modifications. You already know these files from the parent's analysis.\n\n" % domain
-
-	msg += "### Execution Steps\n"
-	msg += "1. Call `spawn_child` for each domain above (can batch in one round)\n"
-	msg += "2. Call `wait_for_children` to collect results\n"
-	msg += "3. Integrate results and finish\n\n"
-	msg += "**Why this helps:** Children run in parallel — a 3-domain task that takes you 30 rounds alone can finish in ~10 rounds with 3 children.\n"
-	return msg
 
 
 ## 从文件路径列表推断领域分组，返回 domain→files 映射
@@ -562,44 +500,6 @@ func _find_uncovered_files() -> Array:
 		if not covered.has(fp) and fp not in out:
 			out.append(fp)
 	return out
-
-
-## 从文件路径列表推断领域分组，返回 domain→files 映射
-func _detect_domains_dict(files: Array) -> Dictionary:
-	var domain_map: Dictionary = {
-		"player": [], "enemy": [], "boss": [],
-		"bullet": [], "weapon": [], "powerup": [],
-		"ui": [], "menu": [],
-		"game": [], "audio": [],
-		"config": [], "manager": [],
-	}
-	var domain_keywords: Dictionary = {
-		"player": ["player", "character", "hero"],
-		"enemy": ["enemy", "mob", "foe"],
-		"boss": ["boss"],
-		"bullet": ["bullet", "projectile", "shot"],
-		"weapon": ["weapon", "gun", "cannon"],
-		"powerup": ["powerup", "pickup", "item"],
-		"ui": ["hud", "label", "button", "panel", "canvas"],
-		"menu": ["menu", "game_over", "title", "pause"],
-		"game": ["game", "wave", "level", "stage"],
-		"audio": ["audio", "sound", "music", "sfx", "bgm"],
-		"config": ["config", "settings", "save", "data"],
-		"manager": ["manager", "controller", "system"],
-	}
-
-	for f in files:
-		var fname: String = f.get_file().to_lower()
-		var matched: bool = false
-		for domain in domain_keywords:
-			for kw in domain_keywords[domain]:
-				if kw in fname:
-					domain_map[domain].append(f)
-					matched = true
-					break
-			if matched:
-				break
-	return domain_map
 
 
 ## 分析 LLM 最新回复，返回应采取的动作（纯决策，不操作消息）
@@ -709,24 +609,27 @@ func _request_convergence_summary() -> void:
 		files_brief = "\n\nFiles explored:\n%s" % "\n".join(_read_files)
 
 	var convergence_msgs: Array = [
-		{"role": "system", "content": """You are an AI architect summarizing a Godot project analysis. Write a structured domain knowledge summary using EXACTLY this format:
+		{"role": "system", "content": """You are an AI architect summarizing a Godot project node's work. Write a structured domain knowledge summary using EXACTLY this format:
 
-## Project Overview
-[project type, architecture pattern, main entry point]
+## Domain
+[one-line description of what this node is responsible for]
 
-## System Modules
-| Module | Responsibility | Key Files | Key Functions/Signals |
-|--------|---------------|-----------|----------------------|
-[one row per major system/subsystem]
+## Key Files
+| File | Purpose |
+|------|---------|
+[list each file you worked with and its purpose]
 
-## Dependencies & Signal Flow
-[which modules depend on which, key signal chains, autoload usage]
+## Architecture
+[how the files relate to each other, key functions/signals, dependencies]
 
-## Issues Found
-[bugs, missing connections, inconsistencies discovered during analysis]
+## Changes Made
+[what you created or modified, with specific details. If analysis-only, write "Analysis only — no changes made."]
 
-Be specific: include file paths, function names, signal names. Do NOT list every file you read — distill the architecture. Focus on what a developer needs to understand the project."""},
-		{"role": "user", "content": "You completed %d rounds of analysis.%s%s\n\nWrite your structured domain knowledge summary now. Do not call any tools." % [_round_count, exec_brief, files_brief]},
+## History
+[one-line entry like: "Analyzed player system (3 files)" or "Added shield mechanic to player.gd and shield_bar.tscn"]
+
+Be specific: include file paths, function names, signal names. Do NOT list every file you read — distill what matters. This summary becomes permanent node knowledge used by future tasks."""},
+		{"role": "user", "content": "You completed %d rounds of work.%s%s\n\nWrite your structured domain knowledge summary now. Do not call any tools." % [_round_count, exec_brief, files_brief]},
 	]
 	var pre_convergence_state: int = node_state  # 保存收束前状态，防止 FAILED 被洗成 COMPLETED
 	_set_node_state(NodeState.LLM_REQUEST)
@@ -867,7 +770,16 @@ func execute_tool(tc_name: String, args_raw: String) -> Dictionary:
 		else:
 			result = {"ok": false, "content": "ToolExecutor not initialized"}
 	else:
-		if _tool_registry:
+		# §14 路径校验：文件创建类工具不允许写入扁平目录
+		if _tool_executor:
+			var path_warning: String = _tool_executor._check_flat_directory(tc_name, args_raw)
+			if not path_warning.is_empty():
+				result = {"ok": false, "content": path_warning}
+			elif _tool_registry:
+				result = await _tool_registry.execute_tool(tc_name, args_raw)
+			else:
+				result = {"ok": false, "content": "ToolRegistry not available"}
+		elif _tool_registry:
 			result = await _tool_registry.execute_tool(tc_name, args_raw)
 		else:
 			result = {"ok": false, "content": "ToolRegistry not available"}
@@ -1224,6 +1136,10 @@ func _execute_tool_round(tool_calls: Array) -> void:
 				})
 				_log("Same-signature failure streak on %s — injected change-strategy reminder" % tc_name)
 
+			# ── 错误自恢复：按错误类型注入定向补救提示 ──
+			if not ok and not _abort_requested:
+				_inject_error_recovery(tc_name, tc_args_raw, result_text)
+
 		if tc_name in ["build_scene", "build_script", "update_script", "write_file", "patch_scene", "configure_resource"] and ok:
 			_track_files(result)
 		if tc_name == "replace_in_file" and ok:
@@ -1232,6 +1148,45 @@ func _execute_tool_round(tool_calls: Array) -> void:
 				var p: String = tc_args.get("path", "")
 				if not p.is_empty() and p not in _files_created:
 					_files_created.append(p)
+
+
+## 错误自恢复 — 按错误类型注入定向补救提示，减少浪费轮次
+## 每种错误只注入一次（用 _recovery_injected 集合去重），避免重复提醒
+func _inject_error_recovery(tc_name: String, tc_args_raw: String, result_text: String) -> void:
+	var hint: String = ""
+
+	# 1. 路径校验拒绝 — 文件创建工具写入了扁平目录
+	if "REJECTED" in result_text and "flat directory" in result_text:
+		var key: String = "path_validation"
+		if key not in _recovery_injected:
+			_recovery_injected[key] = true
+			hint = "Path validation rejected: you tried to create a file in a flat directory (scripts/, scenes/, or resources/). Use list_files to discover the domain-based structure, then retry with the correct domain path (e.g., res://ui/, res://player/, res://enemies/, res://core/, res://assets/)."
+
+	# 2. replace_in_file 的 old_text 找不到 — 通常是缩进不匹配或文件已被修改
+	elif tc_name == "replace_in_file" and "old_text not found" in result_text:
+		var key: String = "replace_not_found"
+		if key not in _recovery_injected:
+			_recovery_injected[key] = true
+			hint = "replace_in_file failed: old_text was not found. This usually means the file content has changed since you last read it, or the indentation doesn't match exactly. Re-read the file with read_script to see its CURRENT content, then retry with the exact text from the file."
+
+	# 3. build_scene/build_script 文件已存在 — 应改用 patch/update
+	elif tc_name in ["build_scene", "build_script"] and "already exists" in result_text:
+		var key: String = "file_exists_%s" % tc_name
+		if key not in _recovery_injected:
+			_recovery_injected[key] = true
+			var alt_tool: String = "patch_scene" if tc_name == "build_scene" else "update_script"
+			hint = "%s failed: file already exists. Use %s to modify the existing file instead, or use replace_in_file for targeted changes. Do NOT create a *_fixed or *_new copy." % [tc_name, alt_tool]
+
+	# 4. inspect_scene_structured 场景不存在
+	elif tc_name == "inspect_scene_structured" and ("not found" in result_text or "does not exist" in result_text):
+		var key: String = "scene_not_found"
+		if key not in _recovery_injected:
+			_recovery_injected[key] = true
+			hint = "inspect_scene_structured failed: scene file not found. Use list_scenes to see all available .tscn files, then retry with the correct path."
+
+	if not hint.is_empty():
+		messages.append({"role": "user", "content": hint})
+		_log("Error recovery injected [%s]: %s" % [tc_name, hint.substr(0, 80)])
 
 
 func _track_files(result: Dictionary) -> void:
@@ -1409,6 +1364,19 @@ func _handle_route_to_child(args: Dictionary) -> Dictionary:
 	# 原始对话是一次性流水，不属于节点本体（架构文档第四节）。
 	child.prior_messages = []
 
+	# ── 增量上下文传递：把父节点本次运行的新发现传给子节点 ──
+	# 子节点醒来时只带自己的持久化知识，不知道父节点在本次运行中发现了什么。
+	# 传递父节点的新文件摘要和新创建文件，避免子节点重复探索。
+	var incremental: String = _build_incremental_context()
+	if not incremental.is_empty():
+		# 用标记分隔增量块 — 多次路由时先剥离旧增量，再注入新增量
+		var marker: String = "## [PARENT_INCREMENTAL_CONTEXT]"
+		var base_prompt: String = child.system_prompt
+		var old_marker_pos: int = base_prompt.find(marker)
+		if old_marker_pos >= 0:
+			base_prompt = base_prompt.substr(0, old_marker_pos).strip_edges()
+		child.system_prompt = base_prompt + "\n\n" + marker + "\n" + incremental
+
 	var ticket: Dictionary = {
 		"ticket_id": "T-%s-%03d" % [child_name, Time.get_ticks_msec() % 1000],
 		"type": "implement",
@@ -1494,12 +1462,12 @@ func _handle_wait_for_children(args: Dictionary) -> Dictionary:
 	if not target.is_empty():
 		if _pending_children.get(target, false):
 			completed.append(target)
-			reports[target] = _child_reports.get(target, {})
+			reports[target] = _truncate_child_report(_child_reports.get(target, {}))
 	else:
 		for cname in _children:
 			if _pending_children.get(cname, false):
 				completed.append(cname)
-				reports[cname] = _child_reports.get(cname, {})
+				reports[cname] = _truncate_child_report(_child_reports.get(cname, {}))
 
 	var pending: Array = []
 	for cname in _pending_children:
@@ -1532,11 +1500,14 @@ func _handle_list_children(_args: Dictionary) -> Dictionary:
 	var result: Array = []
 	for cname in _children:
 		var child = _children[cname]
+		var dk_preview: String = str(child.domain_knowledge).substr(0, 200) if child.domain_knowledge else ""
 		result.append({
 			"name": cname,
 			"state": child.node_state,
 			"rounds": child.get_round_count(),
 			"done": _pending_children.get(cname, false),
+			"managed_files": child.managed_files.duplicate() if child.managed_files else [],
+			"domain_knowledge_preview": dk_preview,
 		})
 	return {"ok": true, "content": JSON.stringify({"children": result, "count": result.size()})}
 
@@ -1590,6 +1561,7 @@ func generate_report() -> Dictionary:
 		"status": state,
 		"fresh_output": fresh_output,
 		"summary": summary_text,
+		"this_run_output": _build_this_run_output(),
 		"rounds": _round_count,
 		"files": managed_files.duplicate(),
 		"children_count": _children.size(),
@@ -1605,6 +1577,80 @@ func generate_report() -> Dictionary:
 		report["failures"] = failures
 		report["error_summary"] = "%d tool failures in %d rounds" % [failures.size(), _round_count]
 	return report
+
+
+## 构建本次运行的精简成果摘要 — "我这次做了什么"
+## 与 domain_knowledge（"我一直知道什么"）分离，让父节点快速判断任务完成度
+func _build_this_run_output() -> String:
+	if _round_count == 0:
+		return "(no rounds executed)"
+
+	var parts: Array = []
+	parts.append("Rounds: %d | Input tokens: %d | Output tokens: %d" % [_round_count, _usage_input_tokens, _usage_output_tokens])
+
+	# 提取执行类工具调用（写入/修改/创建）
+	var exec_tools: Array = []
+	var read_tools: Array = []
+	var failed_tools: Array = []
+	for r in _execution_trace.get("rounds", []):
+		for t in r.get("tools", []):
+			var name: String = str(t.get("name", ""))
+			var ok: bool = t.get("ok", true)
+			if not ok:
+				failed_tools.append(name)
+			elif name in ["build_scene", "build_script", "update_script", "write_file", "patch_scene", "replace_in_file", "configure_resource", "configure_project"]:
+				exec_tools.append(name)
+			elif name in ["read_script", "read_multiple_files", "inspect_scene_structured", "list_files", "list_scenes"]:
+				read_tools.append(name)
+
+	if not exec_tools.is_empty():
+		parts.append("Executed: %s" % ", ".join(exec_tools))
+	if not read_tools.is_empty():
+		parts.append("Read/Inspected: %d calls" % read_tools.size())
+	if not _files_created.is_empty():
+		parts.append("Created: %s" % ", ".join(_files_created))
+	if not failed_tools.is_empty():
+		parts.append("Failed: %s" % ", ".join(failed_tools))
+
+	# 提取最后一条助手消息作为结论（截取前 300 字符）
+	var last_assistant: String = _extract_last_assistant_content()
+	if not last_assistant.is_empty():
+		parts.append("Conclusion: %s" % last_assistant.substr(0, 300))
+
+	return " | ".join(parts)
+
+
+## 从 messages 中提取最后一条助手消息的内容
+func _extract_last_assistant_content() -> String:
+	for i in range(messages.size() - 1, -1, -1):
+		var msg: Dictionary = messages[i]
+		if msg.get("role", "") == "assistant":
+			var content = msg.get("content", "")
+			if content != null and not str(content).is_empty():
+				return str(content)
+	return ""
+
+
+## 截断子节点报告，防止父节点上下文爆炸
+## summary 截断到 800 字符，this_run_output 截断到 500 字符，递归截断子报告
+func _truncate_child_report(report: Dictionary) -> Dictionary:
+	if report.is_empty():
+		return report
+	var trimmed: Dictionary = report.duplicate()
+	var summary: String = str(trimmed.get("summary", ""))
+	if summary.length() > 800:
+		trimmed["summary"] = summary.substr(0, 800) + "...[truncated]"
+	var tro: String = str(trimmed.get("this_run_output", ""))
+	if tro.length() > 500:
+		trimmed["this_run_output"] = tro.substr(0, 500) + "...[truncated]"
+	# 递归截断子报告（最多保留 3 层深度）
+	var child_reports = trimmed.get("children_reports", {})
+	if child_reports is Dictionary:
+		var trimmed_children: Dictionary = {}
+		for cname in child_reports:
+			trimmed_children[cname] = _truncate_child_report(child_reports[cname])
+		trimmed["children_reports"] = trimmed_children
+	return trimmed
 
 
 # ============ 持久化 ============
@@ -1734,7 +1780,7 @@ func _update_children_summaries() -> void:
 			children_summaries.append({
 				"id": cname,
 				"status": str(report.get("status", "UNKNOWN")),
-				"summary": summary.substr(0, 200),
+				"summary": summary.substr(0, 500),
 				"files": report.get("files", []),
 			})
 		else:
@@ -1742,7 +1788,7 @@ func _update_children_summaries() -> void:
 			children_summaries.append({
 				"id": cname,
 				"status": child.state,
-				"summary": child.domain_knowledge.substr(0, 200),
+				"summary": child.domain_knowledge.substr(0, 500),
 				"files": child.managed_files.duplicate(),
 			})
 
@@ -1842,7 +1888,8 @@ func _load_shared_knowledge() -> Array:
 
 
 ## 构建节点上下文字符串 — 注入到 LLM 让节点醒来时知道自己的身份和领域
-func _build_node_context() -> String:
+## task_text: 当前任务文本，用于按相关性排序子节点知识注入
+func _build_node_context(task_text: String = "") -> String:
 	var parts: Array = []
 
 	parts.append("# Your Identity")
@@ -1877,22 +1924,37 @@ func _build_node_context() -> String:
 		parts.append("")
 		parts.append("## Your Child Nodes")
 		parts.append("IMPORTANT: These nodes are persistent experts in their domains. Before doing any work yourself, check if the task falls within a child's managed files below. If it does, use route_to_child() — do NOT do the work yourself.")
+
+		# 按任务相关性排序子节点 — 相关节点在前，详细展示知识；不相关的在后，精简展示
+		var scored: Array = []
+		var task_lower: String = task_text.to_lower() if not task_text.is_empty() else ""
 		for cs in children_summaries:
+			var score: int = _score_child_relevance(cs, task_lower)
+			scored.append({"summary": cs, "score": score})
+		scored.sort_custom(func(a, b): return a.score > b.score)
+
+		for entry in scored:
+			var cs: Dictionary = entry.summary
+			var relevance: int = entry.score
 			var cid: String = str(cs.get("id", ""))
 			var cstatus: String = str(cs.get("status", ""))
 			var csummary: String = str(cs.get("summary", ""))
 			var cfiles = cs.get("files", [])
 			var fc: int = cfiles.size() if cfiles is Array else 0
-			parts.append("- **%s** [%s] (%d files)" % [cid, cstatus, fc])
+			# 相关节点展示更长的知识摘要（500字），不相关的精简（80字）
+			var knowledge_limit: int = 500 if relevance > 0 else 80
+			var relevance_tag: String = " ⭐" if relevance > 0 else ""
+			parts.append("- **%s** [%s] (%d files)%s" % [cid, cstatus, fc, relevance_tag])
 			if fc > 0:
 				var file_list: String = ""
-				for i in range(mini(fc, 8)):
+				var max_files: int = 12 if relevance > 0 else 5
+				for i in range(mini(fc, max_files)):
 					file_list += str(cfiles[i]) + ", "
-				if fc > 8:
-					file_list += "... (+%d more)" % (fc - 8)
+				if fc > max_files:
+					file_list += "... (+%d more)" % (fc - max_files)
 				parts.append("  Files: %s" % file_list)
 			if not csummary.is_empty():
-				parts.append("  Knowledge: %s" % csummary.substr(0, 150))
+				parts.append("  Knowledge: %s" % csummary.substr(0, knowledge_limit))
 
 	if not history.is_empty():
 		parts.append("")
@@ -1904,6 +1966,107 @@ func _build_node_context() -> String:
 			parts.append("- %s" % str(h))
 
 	if parts.size() <= 1:
+		return ""
+
+	return "\n".join(parts)
+
+
+## 计算子节点与当前任务的相关性分数（0 = 不相关，>0 = 相关）
+## 匹配维度：节点 ID、管辖文件名、领域知识中的关键词
+func _score_child_relevance(cs: Dictionary, task_lower: String) -> int:
+	if task_lower.is_empty():
+		return 0
+	var score: int = 0
+	var cid: String = str(cs.get("id", "")).to_lower()
+	var csummary: String = str(cs.get("summary", "")).to_lower()
+	var cfiles = cs.get("files", [])
+
+	# 1. 节点 ID 匹配（最强信号 — 节点名就是领域名）
+	if not cid.is_empty():
+		# 把 PascalCase 拆成单词匹配：PlayerSystem → player, system
+		var id_words: Array = _split_camel_case(cid)
+		for w in id_words:
+			if w.length() >= 3 and w in task_lower:
+				score += 3
+
+	# 2. 管辖文件名匹配（文件路径中的关键词）
+	if cfiles is Array:
+		for f in cfiles:
+			var fname: String = str(f).get_file().to_lower().replace("_", " ").replace("-", " ")
+			# 提取文件名中的关键词（去掉扩展名）
+			var fname_base: String = fname.get_basename()
+			for word in fname_base.split(" ", false):
+				if word.length() >= 3 and word in task_lower:
+					score += 2
+
+	# 3. 领域知识关键词匹配（最弱信号但覆盖面广）
+	if not csummary.is_empty():
+		# 提取任务中的关键词（长度 >= 4 的单词）
+		var task_words: Array = []
+		for w in task_lower.split(" ", false):
+			var cleaned: String = w.strip_edges().replace(",", "").replace(".", "").replace("?", "").replace("!", "")
+			if cleaned.length() >= 4:
+				task_words.append(cleaned)
+		# 在知识摘要中匹配
+		for w in task_words:
+			if w in csummary:
+				score += 1
+
+	return score
+
+
+## 将 PascalCase 或 snake_case 字符串拆分为小写单词列表
+func _split_camel_case(s: String) -> Array:
+	var result: Array = []
+	var current: String = ""
+	for i in range(s.length()):
+		var c: String = s[i]
+		if c == "_" or c == "-" or c == " ":
+			if not current.is_empty():
+				result.append(current.to_lower())
+				current = ""
+		elif c.to_upper() == c and c.to_lower() != c and not current.is_empty():
+			# 大写字母 — 新词开始
+			result.append(current.to_lower())
+			current = c
+		else:
+			current += c
+	if not current.is_empty():
+		result.append(current.to_lower())
+	return result
+
+
+## 构建增量上下文 — 父节点本次运行的新发现，传递给被路由的子节点
+## 避免子节点重复探索父节点已经分析过的文件
+func _build_incremental_context() -> String:
+	var parts: Array = []
+
+	# 1. 父节点本次读取的文件摘要（最有价值 — 子节点可以直接引用）
+	if not _file_summaries.is_empty():
+		parts.append("## Parent's File Index (from this run — use these instead of re-reading)")
+		var count: int = 0
+		for fp in _file_summaries:
+			if count >= 20:  # 限制条目数防止上下文爆炸
+				parts.append("... (+%d more files)" % (_file_summaries.size() - 20))
+				break
+			parts.append("- `%s`: %s" % [fp, _file_summaries[fp]])
+			count += 1
+
+	# 2. 父节点本次创建的文件
+	if not _files_created.is_empty():
+		parts.append("")
+		parts.append("## Parent Created These Files This Run")
+		for f in _files_created:
+			parts.append("- %s" % str(f))
+
+	# 3. 父节点本轮发现的关键信息（如果有）
+	if not domain_knowledge.is_empty() and _round_count > 0:
+		var trimmed: String = domain_knowledge.substr(0, 800)
+		parts.append("")
+		parts.append("## Parent's Current Knowledge (updated this run)")
+		parts.append(trimmed)
+
+	if parts.is_empty():
 		return ""
 
 	return "\n".join(parts)
