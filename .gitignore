@@ -10,5 +10,14 @@ addons/dotagent/banyan_agent/sessions/
 addons/dotagent/logs/
 addons/dotagent/sessions/
 
+# DotAgent: cache and test output
+.dotagent/models_cache.json
+tests/regression_results.json
+tests/benchmark/logs/
+tests/benchmark/results.jsonl
+
+# External tools
+.workbuddy/
+
 # Local test files with credentials
 model_fetch_test_keys.md
