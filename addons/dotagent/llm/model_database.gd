@@ -199,7 +199,6 @@ func refresh(host_node: Node, on_complete: Callable) -> void:
 	var http := HTTPRequest.new()
 	host_node.add_child(http)
 	http.timeout = 60
-	http.set_follow_redirects(false)
 	var headers := PackedStringArray(["User-Agent: DotAgent/1.0"])
 	var url := "https://api.github.com/repos/ailiAlone/DotAgent/contents/addons/dotagent/models_cache.json?ref=main"
 
@@ -215,19 +214,24 @@ func refresh(host_node: Node, on_complete: Callable) -> void:
 			on_complete.call(false, "JSON parse error")
 			return
 		var root = json.data
-		if not root is Dictionary or root.get("encoding") != "base64":
+		if not root is Dictionary:
 			print("[DotAgent] Download failed: invalid response format")
 			on_complete.call(false, "Invalid format")
 			return
+
+		# 文件 >1MB 时 Contents API 不返回 content，改用 Git Blobs API
+		if root.get("encoding") != "base64":
+			var blob_url: String = str(root.get("git_url", ""))
+			if blob_url.is_empty():
+				print("[DotAgent] Download failed: file too large, no blob URL")
+				on_complete.call(false, "File too large")
+				return
+			_download_blob(blob_url, host_node, on_complete)
+			return
+
 		var b64 := str(root.get("content", "")).replace("\n", "").replace("\r", "")
 		var text := Marshalls.base64_to_utf8(b64)
-		_save_cache(text)
-		_load_from_string(text)
-		var total := 0
-		for pk in _data:
-			total += _data[pk].get("models", {}).size()
-		print("[DotAgent] Downloaded %d providers, %d models" % [_data.size(), total])
-		on_complete.call(true, "%d providers, %d models" % [_data.size(), total])
+		_post_download(text, on_complete)
 	)
 
 	var err := http.request(url, headers, HTTPClient.METHOD_GET)
@@ -235,6 +239,50 @@ func refresh(host_node: Node, on_complete: Callable) -> void:
 		http.queue_free()
 		print("[DotAgent] Download failed: request error %d" % err)
 		on_complete.call(false, "Request error %d" % err)
+
+
+## 大文件 (>1MB) 通过 Git Blobs API 下载
+func _download_blob(blob_url: String, host_node: Node, on_complete: Callable) -> void:
+	var http := HTTPRequest.new()
+	host_node.add_child(http)
+	http.timeout = 60
+	var headers := PackedStringArray(["User-Agent: DotAgent/1.0"])
+
+	http.request_completed.connect(func(_result: int, code: int, _h: PackedStringArray, body: PackedByteArray):
+		http.queue_free()
+		if code != 200:
+			print("[DotAgent] Blob download failed: HTTP %d" % code)
+			on_complete.call(false, "Blob HTTP %d" % code)
+			return
+		var json := JSON.new()
+		if json.parse(body.get_string_from_utf8()) != OK:
+			print("[DotAgent] Blob download failed: JSON parse error")
+			on_complete.call(false, "Blob JSON error")
+			return
+		var root = json.data
+		if not root is Dictionary or root.get("encoding") != "base64":
+			print("[DotAgent] Blob download failed: invalid format")
+			on_complete.call(false, "Blob invalid format")
+			return
+		var b64 := str(root.get("content", "")).replace("\n", "").replace("\r", "")
+		_post_download(Marshalls.base64_to_utf8(b64), on_complete)
+	)
+
+	var err := http.request(blob_url, headers, HTTPClient.METHOD_GET)
+	if err != OK:
+		http.queue_free()
+		on_complete.call(false, "Blob request error %d" % err)
+
+
+## 下载完成后缓存、加载、回调
+func _post_download(text: String, on_complete: Callable) -> void:
+	_save_cache(text)
+	_load_from_string(text)
+	var total := 0
+	for pk in _data:
+		total += _data[pk].get("models", {}).size()
+	print("[DotAgent] Downloaded %d providers, %d models" % [_data.size(), total])
+	on_complete.call(true, "%d providers, %d models" % [_data.size(), total])
 
 
 # ============ 内部 ============
