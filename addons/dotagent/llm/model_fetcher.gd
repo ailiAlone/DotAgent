@@ -138,18 +138,7 @@ func get_providers() -> Array:
 	return _db.get_providers()
 
 
-## 获取已缓存的所有 Provider key 列表（启动时从 GitHub 目录列表获取）
-func get_provider_list() -> Dictionary:
-	return _db.get_provider_list()
-
-
-## 按需加载指定 Provider 的完整数据（provider.toml + 全部 model TOML）
-## on_complete 签名: func(success: bool, provider_key: String, model_count: int, error_msg: String)
-func fetch_provider_models(provider_key: String, host_node: Node, on_complete: Callable) -> void:
-	_db.fetch_provider_models(provider_key, host_node, on_complete)
-
-
-## 刷新模型数据库（从 models.dev 重新下载）
+## 刷新模型数据库（从 GitHub API 下载预置的 api.json）
 ## on_complete 回调签名: func(success: bool, message: String)
 func refresh_database(host_node: Node, on_complete: Callable) -> void:
 	_db.refresh(host_node, on_complete)

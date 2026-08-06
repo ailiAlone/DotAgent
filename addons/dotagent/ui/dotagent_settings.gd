@@ -61,11 +61,20 @@ func _ready() -> void:
 	_config = ConfigManager.instance()
 	_model_fetcher = ModelFetcher.new()
 
-	# 启动时从 GitHub API 获取 Provider 列表（1 请求）
-	_model_fetcher.refresh_database(self, func(success: bool, _msg: String):
-		if success:
-			_build_provider_list()
-	)
+	# 从缓存加载提供商列表
+	_providers = _model_fetcher.get_providers()
+	_providers.append({"key": "custom", "name": "Custom", "url": "", "format": "openai", "count": 0})
+
+	# 如果缓存为空，尝试在线下载
+	if _providers.size() <= 1:
+		_model_fetcher.refresh_database(self, func(success: bool, _msg: String):
+			if success:
+				_providers = _model_fetcher.get_providers()
+				_providers.append({"key": "custom", "name": "Custom", "url": "", "format": "openai", "count": 0})
+				_populate_provider_dropdown()
+		)
+	else:
+		_populate_provider_dropdown()
 
 	# 填充模式下拉
 	mode_option.clear()
@@ -92,25 +101,6 @@ func _ready() -> void:
 	test_btn.pressed.connect(_test_connection)
 	reset_btn.pressed.connect(func(): reset_requested.emit())
 	confirmed.connect(_save)
-
-
-## 从 GitHub 获取的 Provider 列表构建下拉框
-func _build_provider_list() -> void:
-	var provider_dict := _model_fetcher.get_provider_list()
-	_providers.clear()
-	for key in provider_dict:
-		var info: Dictionary = provider_dict[key]
-		_providers.append({
-			"key": key,
-			"name": info.get("name", key),
-			"url": _model_fetcher._db.URL_OVERRIDES.get(key, ""),
-			"format": "openai",
-			"count": 0,
-		})
-	# 按名称排序
-	_providers.sort_custom(func(a, b): return str(a["name"]).nocasecmp_to(str(b["name"])) < 0)
-	_providers.append({"key": "custom", "name": "Custom", "url": "", "format": "openai", "count": 0})
-	_populate_provider_dropdown()
 
 
 ## 用动态加载的 _providers 列表填充 Provider 下拉框
